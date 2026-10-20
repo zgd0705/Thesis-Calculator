@@ -55,9 +55,10 @@ button,input,select,textarea{font:inherit;color:inherit}
 .brand svg{flex:none}
 .brand b{font-size:14.5px;letter-spacing:.01em}
 .brand small{display:block;color:var(--faint);font-size:11px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.steps{display:flex;gap:4px;background:var(--bg-2);border:1px solid var(--border);border-radius:999px;padding:3px}
+.steps{display:flex;gap:4px;background:var(--bg-2);border:1px solid var(--border);border-radius:999px;padding:3px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.steps::-webkit-scrollbar{display:none}
 .step{
-  display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--muted);
+  flex:none;display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--muted);
   padding:5px 13px 5px 6px;border-radius:999px;cursor:pointer;white-space:nowrap;font-weight:500;
 }
 .step .num{
@@ -146,6 +147,21 @@ input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;bac
 }
 .drop:hover,.drop.over{border-color:var(--accent);color:var(--text);background:var(--accent-soft)}
 .drop b{color:var(--text)}
+
+/* Step 5 editor controls */
+.prop{display:grid;grid-template-columns:1fr 72px 40px;gap:6px;align-items:center;margin-bottom:9px;color:var(--muted);font-size:12px}
+.prop.two{grid-template-columns:1fr 112px}
+input[type=color]{width:40px;height:30px;padding:2px;border:1px solid var(--border-2);border-radius:6px;background:var(--bg-2);cursor:pointer}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
+input[type=color]::-moz-color-swatch{border:none;border-radius:4px}
+input[type=color]:disabled{opacity:.35;cursor:not-allowed}
+.tools button{display:flex;align-items:center;justify-content:center;gap:6px}
+.tools kbd{font-size:9.5px;opacity:.8}
+.dash-seg{margin-bottom:10px}
+.dash-seg button{display:grid;place-items:center;padding:7px 4px}
+.sub{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin:12px 0 7px;font-weight:600}
+.sub:first-child{margin-top:0}
 
 /* Mini tables (sidebar) */
 .mini-wrap{max-height:250px;overflow:auto;margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
@@ -253,6 +269,7 @@ table.results .extrap{color:var(--warn)}
 /* =========================================================================
    Responsive: stack on narrow screens
    ========================================================================= */
+@media (max-width:1360px){ .brand{width:auto} .brand small{display:none} }
 @media (max-width:980px){
   body{grid-template-rows:auto auto auto auto;grid-template-columns:minmax(0,1fr);overflow-x:hidden;overflow-y:auto;height:auto}
   .site-nav-inner{height:40px}
@@ -294,9 +311,10 @@ table.results .extrap{color:var(--warn)}
     <button class="step" data-step="2" role="tab"><span class="num">2</span>Lanes<span class="badge" id="badge2"></span></button>
     <button class="step" data-step="3" role="tab"><span class="num">3</span>Bands<span class="badge" id="badge3"></span></button>
     <button class="step" data-step="4" role="tab"><span class="num">4</span>Calibration &amp; Results<span class="badge" id="badge4"></span></button>
+    <button class="step" data-step="5" role="tab"><span class="num">5</span>Annotate &amp; Export</button>
   </nav>
   <div class="top-actions">
-    <button class="btn sm" id="btnExportPng" disabled>Export PNG</button>
+    <button class="btn sm" id="btnExportPng" disabled title="Export the annotated figure with the settings in step 5">Export image</button>
     <button class="btn sm" id="btnExportCsv" disabled>Export CSV</button>
   </div>
 </header>
@@ -313,8 +331,8 @@ table.results .extrap{color:var(--warn)}
         <h3>Load gel image</h3>
         <div class="drop" id="dropSmall" tabindex="0" role="button" aria-label="Choose an image file">
           <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
-          <div><b>Drop PNG / JPEG</b> or click to browse</div>
-          <div class="faint" style="font-size:11px">You can also paste an image (<kbd>Ctrl</kbd>+<kbd>V</kbd>)</div>
+          <div><b>Drop PNG / JPEG / TIFF</b> or click to browse</div>
+          <div class="faint" style="font-size:11px">Full resolution up to 50 MP · 8/16-bit TIFF · or paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>)</div>
         </div>
         <button class="btn block" id="btnDemo">Load demo gel</button>
         <div class="meta" id="imgMeta">No image loaded</div>
@@ -330,7 +348,10 @@ table.results .extrap{color:var(--warn)}
         <div class="field"><label for="brightness">Brightness <output id="brightnessOut">0</output></label><input type="range" id="brightness" min="-100" max="100" value="0"></div>
         <div class="field"><label for="contrast">Contrast <output id="contrastOut">0</output></label><input type="range" id="contrast" min="-100" max="100" value="0"></div>
         <div class="field"><label for="gamma">Gamma <output id="gammaOut">1.00</output></label><input type="range" id="gamma" min="0.3" max="3" step="0.05" value="1"></div>
-        <button class="btn sm" id="btnResetDisplay">Reset display</button>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn sm" id="btnAutoLevels" title="Stretch the display between the darkest and brightest pixels">Auto levels</button>
+          <button class="btn sm" id="btnResetDisplay">Reset display</button>
+        </div>
       </div>
 
       <div class="group">
@@ -474,25 +495,86 @@ table.results .extrap{color:var(--warn)}
         <div class="fit-stats" id="fitStats">No calibration yet.</div>
       </div>
 
-      <div class="group">
-        <h3>Export</h3>
-        <label class="check" style="margin-top:0"><input type="checkbox" id="exLanes" checked> Lane outlines</label>
-        <label class="check"><input type="checkbox" id="exNums" checked> Lane numbers</label>
-        <label class="check"><input type="checkbox" id="exBands" checked> Band lines</label>
-        <label class="check"><input type="checkbox" id="exLabels" checked> Size labels above bands</label>
-        <label class="check"><input type="checkbox" id="exCaption" checked> Calibration caption</label>
-        <div class="btn-row">
-          <button class="btn primary" id="btnExportPng2">Annotated PNG</button>
-          <button class="btn" id="btnExportCsv2">Results CSV</button>
-        </div>
-      </div>
-
       <details class="group">
         <summary>Method notes</summary>
         <p>Each lane profile is the mean signal across the lane width, sampled along the lane's own centre line from well to dye front, so slanted and smiling lanes are measured correctly.</p>
         <p>Ladder bands are matched to the known sizes from the top (largest) down. The standard curve regresses log₁₀(size) on Rf. Sizes outside the ladder's Rf range are extrapolated and marked with “~”.</p>
         <p>Integrated area is the baseline-corrected profile summed between band boundaries. Boundaries are where the signal falls to 3% of the peak, or the valley between two neighbouring bands. It is a relative quantity, in intensity × px.</p>
       </details>
+      <button class="btn primary block" data-goto="5">Continue to Annotate &amp; Export →</button>
+    </section>
+
+    <!-- STEP 5: ANNOTATE & EXPORT -->
+    <section class="panel" data-panel="5" id="panel5">
+      <div class="group">
+        <h3>Tools</h3>
+        <div class="seg tools" id="toolSeg">
+          <button data-tool="select" class="on" title="Select and move (V)">↖ Select <kbd>V</kbd></button>
+          <button data-tool="line" title="Draw a line (L)">╱ Line <kbd>L</kbd></button>
+          <button data-tool="text" title="Add text (T)">T Text <kbd>T</kbd></button>
+        </div>
+        <div class="btn-row">
+          <button class="btn sm" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button class="btn sm" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        </div>
+        <div class="hint">Drag any label, line or text to move it. Hold <kbd>Shift</kbd> to move along one axis or keep lines at 45° steps. Arrow keys nudge the selection.</div>
+      </div>
+
+      <div class="group">
+        <h3>Selection <span class="pill" id="selKind"></span></h3>
+        <div id="annotInspector"></div>
+      </div>
+
+      <div class="group">
+        <h3>Label style (all labels)</h3>
+        <div class="prop two"><span>Font</span><select id="stFont"><option value="sans">Sans-serif</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stBold"> Bold</label>
+        <label class="check" style="margin-bottom:10px"><input type="checkbox" id="stHalo"> Outline (halo) for legibility</label>
+        <div class="sub">Size labels</div>
+        <div class="prop"><span>Font size (px) / colour</span><input type="number" id="stLabelSize" min="1" max="2000" step="1"><input type="color" id="stLabelColor"></div>
+        <div class="sub">Lane labels</div>
+        <div class="prop"><span>Font size (px) / colour</span><input type="number" id="stLaneSize" min="1" max="2000" step="1"><input type="color" id="stLaneColor"></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stLaneAuto"> Colour by lane type (ladder purple, samples blue)</label>
+        <div class="sub">Band lines</div>
+        <div class="prop"><span>Width (px) / colour</span><input type="number" id="stBandWidth" min="0.5" max="200" step="0.5"><input type="color" id="stBandColor"></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stBandAuto"> Colour by lane type</label>
+        <div class="btn-row">
+          <button class="btn sm" id="btnResetLabelPos">Reset positions</button>
+          <button class="btn sm" id="btnShowHidden">Show hidden</button>
+          <button class="btn sm" id="btnResetStyle">Default style</button>
+        </div>
+        <div class="hint">Sizes are in pixels of the exported image (at native resolution).</div>
+      </div>
+
+      <div class="group">
+        <h3>Layers</h3>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="exLanes" checked> Lane outlines</label>
+        <label class="check"><input type="checkbox" id="exNums" checked> Lane labels</label>
+        <label class="check"><input type="checkbox" id="exBands" checked> Band lines</label>
+        <label class="check"><input type="checkbox" id="exLabels" checked> Size labels above bands</label>
+        <label class="check"><input type="checkbox" id="exCaption" checked> Caption strip below the gel</label>
+        <div class="field" style="margin-top:10px"><label for="captionText">Caption text</label><input type="text" id="captionText" placeholder="Automatic calibration summary"></div>
+      </div>
+
+      <div class="group">
+        <h3>Export image</h3>
+        <div class="field"><label for="exFormat">Format</label>
+          <select id="exFormat">
+            <option value="png">PNG (lossless, recommended)</option>
+            <option value="tiff">TIFF (uncompressed, for journals)</option>
+            <option value="jpeg">JPEG (maximum quality)</option>
+          </select></div>
+        <div class="field"><label for="exScale">Resolution</label><select id="exScale"></select></div>
+        <div class="field"><label for="exDpi">Print resolution (DPI metadata)</label>
+          <select id="exDpi"><option value="72">72 dpi (screen)</option><option value="150">150 dpi</option><option value="300" selected>300 dpi (publication)</option><option value="600">600 dpi</option><option value="1200">1200 dpi</option></select></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="exSmooth" checked> Smooth the gel image when upscaling</label>
+        <div class="meta" id="exInfo"></div>
+        <div class="btn-row">
+          <button class="btn primary" id="btnExportPng2">Export image</button>
+          <button class="btn" id="btnExportCsv2">Results CSV</button>
+        </div>
+        <div class="hint">“Native” exports every pixel of your upload unchanged; 2–4× also renders labels and lines more finely for print.</div>
+      </div>
     </section>
   </aside>
 
@@ -506,7 +588,7 @@ table.results .extrap{color:var(--warn)}
         <div class="box" id="emptyBox" role="button" tabindex="0">
           <svg width="46" height="46" viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="10" fill="none" stroke="#2e3c4f" stroke-width="2"/><g fill="#38bdf8"><rect x="12" y="14" width="10" height="3" rx="1"/><rect x="27" y="22" width="10" height="3" rx="1"/><rect x="42" y="30" width="10" height="3" rx="1"/></g><g fill="#fbbf24"><rect x="12" y="32" width="10" height="3" rx="1"/><rect x="27" y="42" width="10" height="3" rx="1"/><rect x="42" y="47" width="10" height="3" rx="1"/></g></svg>
           <h2>Drop a gel image here</h2>
-          <p>PNG or JPEG, or click to browse. Everything runs locally in your browser; nothing is uploaded.</p>
+          <p>PNG, JPEG or TIFF (8/16-bit), at full resolution. Click to browse. Everything runs locally in your browser; nothing is uploaded.</p>
           <button class="btn primary" id="btnDemo2" type="button">Try the demo gel</button>
         </div>
       </div>
@@ -567,7 +649,7 @@ table.results .extrap{color:var(--warn)}
   <span class="right" id="stHint">Ready</span>
 </footer>
 
-<input type="file" id="fileInput" accept="image/png,image/jpeg,image/jpg,image/webp,image/bmp,image/gif" hidden>
+<input type="file" id="fileInput" accept="image/png,image/jpeg,image/tiff,image/webp,image/bmp,image/gif,.tif,.tiff" hidden>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 <div class="drag-veil" id="dragVeil"></div>
 
@@ -653,18 +735,18 @@ const LADDER_PRESETS = {
   'custom':              { name: 'Custom (edit sizes below)', sizes: null },
 };
 
-const MAX_DIM = 4096;   // working images are capped to this size (px) for responsiveness
+const MAX_PIXELS = 50e6, MAX_SIDE = 16384;   // working-image limits (larger uploads are downscaled to fit)
 
 /* ==========================================================================
    2. APPLICATION STATE
    ========================================================================== */
 const state = {
-  img: null,            // { width, height, rgba, gray, signal }
-  src: null,            // original drawable (Image or Canvas), kept for re-orientation
+  base: null,           // full-resolution source (see loadFile), after 90° rotations / flips
+  img: null,            // working image: base, or a fine-rotated copy { width, height, gray, rgba, bits }
   fileName: 'gel',
-  bgFill: '#000',
-  rotation90: 0, fineRotation: 0, flipH: false,
-  display: { invert: false, brightness: 0, contrast: 0, gamma: 1 },
+  bgValue: 0,           // median intensity (fills corners after fine rotation)
+  fineRotation: 0,
+  display: { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 },
   polarity: 'bright',   // 'bright' = bright bands on dark bg; 'dark' = dark bands on light bg
   dispCanvas: null, dispCtx: null, dispData: null,
   view: { scale: 1, ox: 0, oy: 0 },
@@ -682,7 +764,13 @@ const state = {
   refMax: 1,            // strongest corrected signal on the gel (threshold reference)
   hover: null,          // { lane, idx } from electropherogram hover
   profileMode: 'raw',
-  exportOpts: { lanes: true, nums: true, bands: true, labels: true, caption: true },
+  annot: {              // step 5 figure editor (positions/sizes in image px)
+    tool: 'select', sel: null, draft: null, items: [], nextId: 1, style: null, caption: '',
+    layers: { lanes: true, nums: true, bands: true, labels: true, caption: true },
+    lineStyle: { dash: 'dashed', color: '#ffffff', width: 2 }, textStyle: { size: 14, color: '#ffffff', bold: true },
+    exp: { format: 'png', scale: 1, dpi: 300, smooth: true },
+    undo: [], redo: [],
+  },
 };
 
 /* ==========================================================================
@@ -841,123 +929,354 @@ const polyval = (c, x) => { let v = 0; for (let i = c.length - 1; i >= 0; i--) v
    4. IMAGE LOADING, ORIENTATION, DISPLAY
    ========================================================================== */
 
-function loadFile(file) {
+/**
+ * Images are held as a "base" record:
+ *   { width, height, gray: Float32Array (0–255 scale, full precision), rgba: Uint8ClampedArray | null,
+ *     bits, origW, origH, scaled }
+ * rgba is kept only for colour images; grayscale gels store just `gray`, which halves memory.
+ * 90° rotations / flips rewrite the base exactly; fine rotation resamples a working copy.
+ */
+async function loadFile(file) {
   if (!file) return;
-  const okType = /^image\/(png|jpe?g|webp|bmp|gif)$/i.test(file.type) || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name);
-  if (!okType) { toast('Unsupported file. Please use a PNG or JPEG image.', 'error'); return; }
+  const name = file.name.replace(/\.[^.]+$/, '') || 'gel';
+  let isTiff = /\.tiff?$/i.test(file.name) || /tiff/i.test(file.type);
+  try {
+    const h = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    isTiff = isTiff || (h[0] === 0x49 && h[1] === 0x49 && h[2] === 42) || (h[0] === 0x4d && h[1] === 0x4d && h[3] === 42);
+  } catch (_) { /* fall through to the browser decoder */ }
+  if (isTiff) {
+    toast(`Decoding ${file.name}…`);
+    try { setSource(await decodeTiff(await file.arrayBuffer()), name); }
+    catch (err) { console.error(err); toast(`Could not read this TIFF: ${err.message}.`, 'error'); }
+    return;
+  }
+  if (!/^image\//i.test(file.type) && !/\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name)) {
+    toast('Unsupported file. Please use a PNG, JPEG or TIFF image.', 'error'); return;
+  }
+  if (file.size > 4e6) toast(`Loading ${file.name}…`);
   const url = URL.createObjectURL(file);
   const im = new Image();
-  im.onload = () => { setSource(im, file.name.replace(/\.[^.]+$/, '') || 'gel'); URL.revokeObjectURL(url); };
+  im.onload = () => {
+    try { setSource(baseFromDrawable(im), name); }
+    catch (err) { console.error(err); toast('This image is too large for the browser’s memory. Try a smaller file.', 'error'); }
+    URL.revokeObjectURL(url);
+  };
   im.onerror = () => { toast('Could not decode this image.', 'error'); URL.revokeObjectURL(url); };
   im.src = url;
 }
 
-/** Median luminance of a small thumbnail, used as the fill colour for rotation. */
-function estimateBackground(src) {
-  const c = document.createElement('canvas'); c.width = c.height = 64;
+/** Scale factor (≤ 1) that keeps an image within the working-size limits. */
+const fitLimits = (w, h) => Math.min(1, Math.sqrt(MAX_PIXELS / (w * h)), MAX_SIDE / Math.max(w, h));
+
+/** Decode a browser-readable image (Image or Canvas) into a base record at full resolution. */
+function baseFromDrawable(src) {
+  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height, k = fitLimits(sw, sh);
+  const W = Math.max(1, Math.round(sw * k)), H = Math.max(1, Math.round(sh * k));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d', { willReadFrequently: true });
-  g.drawImage(src, 0, 0, 64, 64);
-  const d = g.getImageData(0, 0, 64, 64).data, lum = [];
-  for (let i = 0; i < d.length; i += 4) lum.push(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]);
-  const m = Math.round(median(lum));
-  return `rgb(${m},${m},${m})`;
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, W, H);
+  const rgba = g.getImageData(0, 0, W, H).data;
+  c.width = c.height = 1;                                            // release the canvas backing store
+  const gray = new Float32Array(W * H); let isGray = true;
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    const r = rgba[i], gg = rgba[i + 1], b = rgba[i + 2];
+    if (isGray && (r !== gg || gg !== b)) isGray = false;
+    gray[p] = 0.299 * r + 0.587 * gg + 0.114 * b;
+  }
+  return { width: W, height: H, gray, rgba: isGray ? null : rgba, bits: 8, origW: sw, origH: sh, scaled: k < 1 };
 }
 
-/** Entry point for a new source image. `hints` may carry {wellY, frontY} (demo gel). */
-function setSource(src, name, hints) {
-  state.src = src; state.fileName = name;
-  state.rotation90 = 0; state.fineRotation = 0; state.flipH = false;
-  $('#fineRot').value = 0; $('#fineRotOut').textContent = '0.0°';
-  state.bgFill = estimateBackground(src);
-  buildWorkingImage();
+/* ---- TIFF decoder (baseline + LZW / Deflate / PackBits, strips or tiles, 8/16/32-bit) ---- */
+function lzwDecode(src, expected) {
+  const out = new Uint8Array(expected), prefix = new Int32Array(4096), suffix = new Uint8Array(4096);
+  const first = new Uint8Array(4096), len = new Int32Array(4096);
+  for (let i = 0; i < 256; i++) { prefix[i] = -1; suffix[i] = first[i] = i; len[i] = 1; }
+  const nbits = src.length * 8;
+  let bit = 0, width = 9, next = 258, old = -1, op = 0;
+  const emit = code => {
+    const L = len[code];
+    for (let k = L - 1, c = code; k >= 0; k--, c = prefix[c]) if (op + k < expected) out[op + k] = suffix[c];
+    op += L;
+  };
+  while (bit + width <= nbits && op < expected) {
+    const b = bit >> 3, v = (src[b] << 16) | ((src[b + 1] || 0) << 8) | (src[b + 2] || 0);
+    const code = (v >> (24 - (bit & 7) - width)) & ((1 << width) - 1);
+    bit += width;
+    if (code === 257) break;                                           // end of information
+    if (code === 256) { width = 9; next = 258; old = -1; continue; }   // clear table
+    if (old === -1) { if (code > 255) break; emit(code); old = code; continue; }
+    if (code < next) {
+      emit(code);
+      if (next < 4096) { prefix[next] = old; suffix[next] = first[code]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
+    } else {
+      if (next < 4096) { prefix[next] = old; suffix[next] = first[old]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
+      emit(code);
+    }
+    old = code;
+    if (next + 1 >= (1 << width) && width < 12) width++;              // TIFF "early change"
+  }
+  return out;
+}
+function packBitsDecode(src, expected) {
+  const out = new Uint8Array(expected); let i = 0, o = 0;
+  while (i < src.length && o < expected) {
+    const n = (src[i++] << 24) >> 24;
+    if (n >= 0) { for (let k = 0; k <= n && o < expected; k++) out[o++] = src[i++]; }
+    else if (n !== -128) { const v = src[i++]; for (let k = 0; k < 1 - n && o < expected; k++) out[o++] = v; }
+  }
+  return out;
+}
+async function inflate(src) {
+  if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot decode Deflate-compressed TIFFs');
+  const stream = new Blob([src]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function decodeTiff(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  const bom = dv.getUint16(0), le = bom === 0x4949;
+  if (!le && bom !== 0x4d4d) throw new Error('not a TIFF file');
+  const ver = dv.getUint16(2, le);
+  if (ver === 43) throw new Error('BigTIFF is not supported; save as a standard TIFF');
+  if (ver !== 42) throw new Error('not a TIFF file');
+  const SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 13: 4 };
+  const ifd = dv.getUint32(4, le), nTags = dv.getUint16(ifd, le), T = {};
+  for (let i = 0; i < nTags; i++) {
+    const e = ifd + 2 + i * 12, tag = dv.getUint16(e, le), type = dv.getUint16(e + 2, le), count = dv.getUint32(e + 4, le);
+    const sz = SZ[type] || 1, off = sz * count <= 4 ? e + 8 : dv.getUint32(e + 8, le), vals = [];
+    if (type === 2 || off + sz * count > buf.byteLength) { T[tag] = vals; continue; }
+    for (let k = 0; k < count; k++) {
+      const p = off + k * sz;
+      vals.push(type === 3 ? dv.getUint16(p, le) : type === 4 || type === 13 ? dv.getUint32(p, le)
+        : type === 5 ? dv.getUint32(p, le) / (dv.getUint32(p + 4, le) || 1) : type === 8 ? dv.getInt16(p, le)
+        : type === 9 ? dv.getInt32(p, le) : type === 11 ? dv.getFloat32(p, le) : type === 12 ? dv.getFloat64(p, le) : u8[p]);
+    }
+    T[tag] = vals;
+  }
+  const g1 = (t, d) => (T[t] && T[t].length ? T[t][0] : d);
+  const W = g1(256, 0), H = g1(257, 0), bps = g1(258, 1), spp = g1(277, 1), comp = g1(259, 1);
+  const photo = g1(262, 1), planar = g1(284, 1), pred = g1(317, 1), fmt = g1(339, 1);
+  if (!W || !H) throw new Error('missing image dimensions');
+  if (![8, 16, 32].includes(bps)) throw new Error(`${bps}-bit samples are not supported (use 8- or 16-bit)`);
+  if (spp > 1 && planar !== 1) throw new Error('planar (separate-plane) TIFF layout is not supported');
+  if (![0, 1, 2, 3].includes(photo)) throw new Error('only grayscale, RGB and palette TIFFs are supported');
+  if (![1, 5, 8, 32946, 32773].includes(comp)) throw new Error(`compression type ${comp} is not supported (use none, LZW, Deflate or PackBits)`);
+  const color = photo === 2 && spp >= 3, cmap = photo === 3 ? T[320] : null;
+  const tiled = !!T[322];
+  const cw = tiled ? g1(322) : W, ch = tiled ? g1(323) : Math.min(g1(278, H), H);
+  const offs = tiled ? T[324] : T[273], cnts = tiled ? T[325] : T[279];
+  if (!offs || !offs.length) throw new Error('no image data found');
+  const across = Math.ceil(W / cw), Bps = bps / 8, rowBytes = cw * spp * Bps;
+
+  // Downsample by an integer box factor when the image exceeds the working limits.
+  const s = Math.max(1, Math.ceil(1 / fitLimits(W, H) - 1e-9));
+  const oW = Math.floor(W / s) || 1, oH = Math.floor(H / s) || 1, area = s * s;
+  const gray = new Float32Array(oW * oH), rgb = color || cmap ? new Float32Array(oW * oH * 3) : null;
+  const maxV = bps === 8 ? 255 : bps === 16 ? 65535 : fmt === 3 ? 1 : 4294967295;
+  let fmax = 0;
+
+  for (let ci = 0; ci < offs.length; ci++) {
+    const x0 = (ci % across) * cw, y0 = Math.floor(ci / across) * ch;
+    if (y0 >= H) break;
+    const rows = Math.min(ch, H - y0), expected = rowBytes * (tiled ? ch : rows);
+    let raw = u8.subarray(offs[ci], offs[ci] + (cnts ? cnts[ci] : expected));
+    let data = comp === 1 ? raw : comp === 5 ? lzwDecode(raw, expected) : comp === 32773 ? packBitsDecode(raw, expected) : await inflate(raw);
+    const ddv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    if (pred === 2) {                                                     // undo horizontal differencing
+      if (comp === 1) { data = data.slice(); }
+      const pdv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      for (let r = 0; r < rows; r++) {
+        const rs = r * rowBytes;
+        for (let i = spp; i < cw * spp; i++) {
+          if (bps === 8) { if (rs + i < data.length) data[rs + i] = (data[rs + i] + data[rs + i - spp]) & 255; }
+          else if (bps === 16 && rs + i * 2 + 1 < data.length) pdv.setUint16(rs + i * 2, (pdv.getUint16(rs + i * 2, le) + pdv.getUint16(rs + (i - spp) * 2, le)) & 0xffff, le);
+        }
+      }
+    }
+    const rdv = pred === 2 ? new DataView(data.buffer, data.byteOffset, data.byteLength) : ddv, dlen = data.length;
+    const sample = o => o + Bps > dlen ? 0 : bps === 8 ? data[o] : bps === 16 ? rdv.getUint16(o, le) : fmt === 3 ? rdv.getFloat32(o, le) : rdv.getUint32(o, le);
+    for (let r = 0; r < rows; r++) {
+      const oy = ((y0 + r) / s) | 0; if (oy >= oH) continue;
+      const cols = Math.min(cw, W - x0);
+      for (let c = 0; c < cols; c++) {
+        const ox = ((x0 + c) / s) | 0; if (ox >= oW) continue;
+        const o = (r * cw + c) * spp * Bps, d = oy * oW + ox;
+        if (cmap) {
+          const idx = sample(o), n = 1 << bps;
+          const R = cmap[idx] / 257, G = cmap[n + idx] / 257, B = cmap[2 * n + idx] / 257;
+          rgb[d * 3] += R; rgb[d * 3 + 1] += G; rgb[d * 3 + 2] += B; gray[d] += 0.299 * R + 0.587 * G + 0.114 * B;
+        } else if (color) {
+          const R = sample(o) / maxV * 255, G = sample(o + Bps) / maxV * 255, B = sample(o + 2 * Bps) / maxV * 255;
+          rgb[d * 3] += R; rgb[d * 3 + 1] += G; rgb[d * 3 + 2] += B; gray[d] += 0.299 * R + 0.587 * G + 0.114 * B;
+        } else {
+          let v = sample(o);
+          if (fmt === 3) { if (v > fmax) fmax = v; } else v = v / maxV * 255;
+          gray[d] += photo === 0 && fmt !== 3 ? 255 - v : v;
+        }
+      }
+    }
+  }
+  if (area > 1) { for (let i = 0; i < gray.length; i++) gray[i] /= area; if (rgb) for (let i = 0; i < rgb.length; i++) rgb[i] /= area; }
+  if (fmt === 3 && !rgb) { const k = fmax > 0 ? 255 / fmax : 1; for (let i = 0; i < gray.length; i++) gray[i] = photo === 0 ? 255 - gray[i] * k : gray[i] * k; }
+  let rgba = null;
+  if (rgb) {
+    let isGray = true;
+    for (let i = 0; i < rgb.length && isGray; i += 3) if (Math.abs(rgb[i] - rgb[i + 1]) > 0.5 || Math.abs(rgb[i + 1] - rgb[i + 2]) > 0.5) isGray = false;
+    if (!isGray) {
+      rgba = new Uint8ClampedArray(oW * oH * 4);
+      for (let p = 0; p < oW * oH; p++) { rgba[p * 4] = rgb[p * 3]; rgba[p * 4 + 1] = rgb[p * 3 + 1]; rgba[p * 4 + 2] = rgb[p * 3 + 2]; rgba[p * 4 + 3] = 255; }
+    }
+  }
+  return { width: oW, height: oH, gray, rgba, bits: bps, origW: W, origH: H, scaled: s > 1 };
+}
+
+/* ---- Source handling, orientation and display ---- */
+
+/** Entry point for a new image. `hints` may carry {wellY, frontY} (demo gel). */
+function setSource(base, name, hints) {
+  state.base = base; state.fileName = name;
+  state.fineRotation = 0; $('#fineRot').value = 0; $('#fineRotOut').textContent = '0.0°';
+  const g = base.gray, step = Math.max(1, Math.floor(g.length / 40000)), smp = [];
+  for (let i = 0; i < g.length; i += step) smp.push(g[i]);
+  state.bgValue = median(smp);
+  Object.assign(state.display, { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 });
+  syncDisplayControls();
+  buildWorking();
+  if (base.bits > 8) autoLevels(true);                                 // 16-bit data rarely spans the full range
   autoPolarity();
-  buildSignal();
   renderDisplay();
   initLayout(hints);
+  scaleDetectDefaults();
+  resetAnnotations();
   $('#emptyState').classList.add('hidden');
   ['#btnExportPng', '#btnExportCsv'].forEach(s => $(s).disabled = false);
   fitView();
   syncControls();
   invalidate('analysis', 'laneUI', 'gel', 'profile');
-  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height;
-  toast(`Loaded ${name} (${sw}×${sh}). ${state.lanes.length} lanes found; lane 1 is set as the ladder.`);
+  toast(`Loaded ${name} (${base.origW}×${base.origH}${base.bits > 8 ? `, ${base.bits}-bit` : ''}${base.scaled ? `, analysed at ${base.width}×${base.height}` : ''}). ${state.lanes.length} lanes found; lane 1 is set as the ladder.`);
 }
 
-/** Rasterise the source with the current orientation into gray/rgba working buffers. */
-function buildWorkingImage() {
-  const src = state.src;
-  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height;
-  const k = Math.min(1, MAX_DIM / Math.max(sw, sh));
-  const w0 = Math.max(1, Math.round(sw * k)), h0 = Math.max(1, Math.round(sh * k));
-  const rot = ((state.rotation90 % 4) + 4) % 4;
-  const W = rot % 2 ? h0 : w0, H = rot % 2 ? w0 : h0;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
-  const g = c.getContext('2d', { willReadFrequently: true });
-  g.fillStyle = state.bgFill; g.fillRect(0, 0, W, H);
-  g.imageSmoothingQuality = 'high';
-  g.save();
-  g.translate(W / 2, H / 2);
-  if (state.flipH) g.scale(-1, 1);
-  g.rotate(rot * Math.PI / 2 + state.fineRotation * Math.PI / 180);
-  g.drawImage(src, -w0 / 2, -h0 / 2, w0, h0);
-  g.restore();
-  const rgba = g.getImageData(0, 0, W, H).data;
-  const gray = new Float32Array(W * H);
-  for (let i = 0, p = 0; p < gray.length; i += 4, p++) gray[p] = 0.299 * rgba[i] + 0.587 * rgba[i + 1] + 0.114 * rgba[i + 2];
-  state.img = { width: W, height: H, rgba, gray, signal: null, scaled: k < 1 };
+/** Build the working image (base, or a fine-rotated copy of it) and its display canvas. */
+function buildWorking() {
+  const B = state.base;
+  const img = state.fineRotation ? rotateFine(B, state.fineRotation) : { ...B };
+  if (state.dispCanvas) state.dispCanvas.width = state.dispCanvas.height = 0;   // free the previous canvas
+  state.img = img;
   state.dispCanvas = document.createElement('canvas');
-  state.dispCanvas.width = W; state.dispCanvas.height = H;
+  state.dispCanvas.width = img.width; state.dispCanvas.height = img.height;
   state.dispCtx = state.dispCanvas.getContext('2d');
-  state.dispData = state.dispCtx.createImageData(W, H);
+  state.dispData = state.dispCtx.createImageData(img.width, img.height);
+  state.lanes.forEach(L => L.profile = null);
   updateImageMeta();
+}
+
+/** Exact 90° rotation ('cw' / 'ccw') or horizontal flip of the base image. */
+function transformBase(kind) {
+  const B = state.base, W = B.width, H = B.height;
+  const nW = kind === 'flip' ? W : H, nH = kind === 'flip' ? H : W;
+  const dst = kind === 'cw' ? (x, y) => x * nW + (H - 1 - y) : kind === 'ccw' ? (x, y) => (W - 1 - x) * nW + y : (x, y) => y * W + (W - 1 - x);
+  const gray = new Float32Array(nW * nH), rgba = B.rgba ? new Uint8ClampedArray(nW * nH * 4) : null;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const s = y * W + x, d = dst(x, y);
+    gray[d] = B.gray[s];
+    if (rgba) { const s4 = s * 4, d4 = d * 4; rgba[d4] = B.rgba[s4]; rgba[d4 + 1] = B.rgba[s4 + 1]; rgba[d4 + 2] = B.rgba[s4 + 2]; rgba[d4 + 3] = 255; }
+  }
+  state.base = { ...B, width: nW, height: nH, gray, rgba };
+}
+
+/** Bilinear rotation about the image centre (degrees, clockwise); corners filled with background. */
+function rotateFine(B, deg) {
+  const W = B.width, H = B.height, a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const cx = (W - 1) / 2, cy = (H - 1) / 2, bg = state.bgValue;
+  const gray = new Float32Array(W * H), rgba = B.rgba ? new Uint8ClampedArray(W * H * 4) : null;
+  for (let y = 0; y < H; y++) {
+    const dy = y - cy;
+    for (let x = 0; x < W; x++) {
+      const dx = x - cx, sx = cx + dx * ca + dy * sa, sy = cy - dx * sa + dy * ca, d = y * W + x;
+      if (sx < 0 || sy < 0 || sx > W - 1 || sy > H - 1) {
+        gray[d] = bg;
+        if (rgba) { rgba[d * 4] = rgba[d * 4 + 1] = rgba[d * 4 + 2] = bg; rgba[d * 4 + 3] = 255; }
+        continue;
+      }
+      const x0 = sx | 0, y0 = sy | 0, x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1), fx = sx - x0, fy = sy - y0;
+      const i00 = y0 * W + x0, i10 = y0 * W + x1, i01 = y1 * W + x0, i11 = y1 * W + x1;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      gray[d] = B.gray[i00] * w00 + B.gray[i10] * w10 + B.gray[i01] * w01 + B.gray[i11] * w11;
+      if (rgba) {
+        for (let c = 0; c < 3; c++) rgba[d * 4 + c] = B.rgba[i00 * 4 + c] * w00 + B.rgba[i10 * 4 + c] * w10 + B.rgba[i01 * 4 + c] * w01 + B.rgba[i11 * 4 + c] * w11;
+        rgba[d * 4 + 3] = 255;
+      }
+    }
+  }
+  return { ...B, gray, rgba };
 }
 
 /** Light background → dark bands (stained gel); dark background → bright bands (fluorescence). */
 function autoPolarity() {
-  const g = state.img.gray, step = Math.max(1, Math.floor(g.length / 40000)), s = [];
-  for (let i = 0; i < g.length; i += step) s.push(g[i]);
-  state.polarity = median(s) > 127 ? 'dark' : 'bright';
+  const mid = (state.display.lo + state.display.hi) / 2;
+  state.polarity = state.bgValue > mid ? 'dark' : 'bright';
   $('#polarityHint').textContent = `Auto-detected: ${state.polarity === 'bright' ? 'dark background with bright bands (fluorescence)' : 'light background with dark bands (colorimetric)'}.`;
 }
 
-/** Analysis signal: band intensity always positive regardless of polarity. */
-function buildSignal() {
-  const { gray } = state.img, s = new Float32Array(gray.length);
-  if (state.polarity === 'bright') s.set(gray);
-  else for (let i = 0; i < gray.length; i++) s[i] = 255 - gray[i];
-  state.img.signal = s;
-  state.lanes.forEach(L => L.profile = null);
+/** Display black/white points from the 0.02% / 99.98% intensity percentiles. */
+function autoLevels(silent) {
+  if (!state.img) return;
+  const g = state.img.gray, hist = new Uint32Array(4097), step = Math.max(1, Math.floor(g.length / 2e6));
+  let n = 0;
+  for (let i = 0; i < g.length; i += step) { hist[Math.min(4096, Math.max(0, (g[i] * 16) | 0))]++; n++; }
+  const pick = q => { let acc = 0; for (let i = 0; i <= 4096; i++) { acc += hist[i]; if (acc >= q * n) return i / 16; } return 255; };
+  let lo = pick(0.0002), hi = pick(0.9998);
+  if (hi - lo < 0.5) { lo = 0; hi = 255; }
+  state.display.lo = lo; state.display.hi = hi;
+  if (!silent) { renderDisplay(); toast(`Display levels stretched to ${lo.toFixed(1)}–${hi.toFixed(1)}.`); }
 }
 
-/** Display LUT: invert → gamma → contrast → brightness. Display only. */
-function buildLUT() {
-  const { brightness, contrast, gamma, invert } = state.display;
-  const c = contrast / 100, f = c >= 0 ? 1 / Math.max(0.02, 1 - c * 0.98) : 1 + c;
-  const lut = new Uint8ClampedArray(256);
-  for (let i = 0; i < 256; i++) {
-    let v = i / 255;
-    if (invert) v = 1 - v;
-    v = Math.pow(v, 1 / gamma);
-    v = (v - 0.5) * f + 0.5 + brightness / 100;
-    lut[i] = Math.round(v * 255);
-  }
-  return lut;
-}
+/**
+ * Display transfer: black/white points → invert → gamma → contrast → brightness.
+ * Display only; analysis always uses the untouched full-precision intensities.
+ */
 function renderDisplay() {
   if (!state.img) return;
-  const lut = buildLUT(), src = state.img.rgba, o = state.dispData.data;
-  for (let i = 0; i < src.length; i += 4) { o[i] = lut[src[i]]; o[i + 1] = lut[src[i + 1]]; o[i + 2] = lut[src[i + 2]]; o[i + 3] = 255; }
+  const { brightness, contrast, gamma, invert, lo, hi } = state.display;
+  const c = contrast / 100, f = c >= 0 ? 1 / Math.max(0.02, 1 - c * 0.98) : 1 + c, span = Math.max(1e-6, hi - lo);
+  const tf = v => {
+    let t = clamp((v - lo) / span, 0, 1);
+    if (invert) t = 1 - t;
+    t = Math.pow(t, 1 / gamma);
+    return Math.round(((t - 0.5) * f + 0.5 + brightness / 100) * 255);
+  };
+  const img = state.img, o = state.dispData.data;
+  if (img.rgba) {
+    const lut = new Uint8ClampedArray(256); for (let i = 0; i < 256; i++) lut[i] = tf(i);
+    const s = img.rgba;
+    for (let i = 0; i < s.length; i += 4) { o[i] = lut[s[i]]; o[i + 1] = lut[s[i + 1]]; o[i + 2] = lut[s[i + 2]]; o[i + 3] = 255; }
+  } else {
+    const lut = new Uint8ClampedArray(4097); for (let i = 0; i <= 4096; i++) lut[i] = tf(i / 16);
+    const g = img.gray;
+    for (let p = 0, i = 0; p < g.length; p++, i += 4) { const v = lut[Math.min(4096, (g[p] * 16 + 0.5) | 0)]; o[i] = o[i + 1] = o[i + 2] = v; o[i + 3] = 255; }
+  }
   state.dispCtx.putImageData(state.dispData, 0, 0);
   invalidate('gel');
 }
 const renderDisplayThrottled = (() => { let pend = false; return () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; renderDisplay(); }); }; })();
 
-function reorient(resetLayout) {
-  if (!state.src) return;
-  buildWorkingImage(); buildSignal(); renderDisplay();
-  if (resetLayout) { initLayout(); toast('Orientation changed: lanes re-detected.'); }
-  else state.lanes.forEach(L => L.profile = null);
+/** Re-orient: 'cw' | 'ccw' | 'flip' (resets the lane layout) or 'fine' (keeps lanes). */
+function reorient(kind) {
+  if (!state.base) return;
+  if (kind !== 'fine') transformBase(kind);
+  buildWorking(); renderDisplay();
+  if (kind !== 'fine') { initLayout(); scaleDetectDefaults(); resetAnnotations(); toast('Orientation changed: lanes re-detected.'); }
   fitView(); syncControls(); invalidate('analysis', 'laneUI');
+}
+
+/** Scale pixel-based detection defaults to the lane length, so high-resolution images work out of the box. */
+function scaleDetectDefaults() {
+  const k = clamp((state.frontY - state.wellY) / 640, 0.5, 40);
+  const set = (id, max, val) => { const el = $('#' + id); el.max = max; el.value = val; el.dispatchEvent(new Event('input')); };
+  set('ballRadius', Math.round(300 * Math.max(1, k)), Math.round(40 * k));
+  set('minDistance', Math.round(40 * Math.max(1, k)), Math.max(2, Math.round(6 * k)));
+  set('smoothing', Math.max(8, Math.round(8 * k)), Math.round(3 * k) / 2);
 }
 
 /** Gaussian random numbers (Box–Muller), seeded for a reproducible demo. */
@@ -1041,7 +1360,7 @@ function loadDemo() {
   state.calib.preset = 'generuler-1kb';
   state.calib.sizes = LADDER_PRESETS['generuler-1kb'].sizes.slice();
   state.calib.offset = 0; state.calib.assignMode = 'auto';
-  setSource(canvas, 'demo_gel', hints);
+  setSource(baseFromDrawable(canvas), 'demo_gel', hints);
 }
 
 /* ==========================================================================
@@ -1054,7 +1373,7 @@ const toImage = (sx, sy) => ({ x: (sx - state.view.ox) / state.view.scale, y: (s
 
 function fitView() {
   if (!state.img) return;
-  const pad = 28, { width: W, height: H } = state.img;
+  const pad = 28, W = state.img.width, H = state.img.height + (state.step === 5 ? captionHeight() : 0);
   const s = Math.min((gel.w - 2 * pad) / W, (gel.h - 2 * pad) / H);
   state.view.scale = s > 0 ? s : 1;
   state.view.ox = (gel.w - W * state.view.scale) / 2;
@@ -1132,12 +1451,12 @@ function generateGrid(n) {
  */
 function autoDetectLanes(forceCount, silent) {
   if (!state.img) return 0;
-  const { width: W, height: H, signal } = state.img;
+  const { width: W, height: H, gray } = state.img, inv = state.polarity === 'dark';
   const y0 = clamp(Math.round(state.wellY), 0, H - 1), y1 = clamp(Math.round(state.frontY), y0 + 1, H);
   const col = new Float32Array(W), ys = Math.max(1, Math.floor((y1 - y0) / 500));
   let cnt = 0;
-  for (let y = y0; y < y1; y += ys) { cnt++; const r = y * W; for (let x = 0; x < W; x++) col[x] += signal[r + x]; }
-  for (let x = 0; x < W; x++) col[x] /= Math.max(1, cnt);
+  for (let y = y0; y < y1; y += ys) { cnt++; const r = y * W; for (let x = 0; x < W; x++) col[x] += gray[r + x]; }
+  for (let x = 0; x < W; x++) col[x] = inv ? 255 - col[x] / Math.max(1, cnt) : col[x] / Math.max(1, cnt);
   // Background: flat opening wider than any lane (follows uneven illumination), then smoothed.
   const sm = gaussianSmooth(col, Math.max(1, W / 400));
   const r = Math.max(3, Math.round(W / 12));
@@ -1220,18 +1539,18 @@ function sampleBilinear(sig, W, H, x, y) {
 
 /** 1-D profile along the lane centre line: mean signal across the lane width, 1 sample/px. */
 function computeProfile(L) {
-  const { width: W, height: H, signal } = state.img;
+  const { width: W, height: H, gray } = state.img, inv = state.polarity === 'dark';
   const yT = laneTop(L), yB = laneBot(L);
   const n = Math.max(3, Math.round(yB - yT) + 1), raw = new Float32Array(n);
-  const nx = Math.max(1, Math.round(L.width));
+  const nx = clamp(Math.round(L.width), 1, 64);                    // ≤ 64 samples across the lane is plenty for a mean
   for (let i = 0; i < n; i++) {
     const t = i / (n - 1), y = yT + t * (yB - yT), cx = L.xTop + t * (L.xBot - L.xTop);
     let s = 0, c = 0;
     for (let k = 0; k < nx; k++) {
-      const v = sampleBilinear(signal, W, H, cx - L.width / 2 + (k + 0.5) * L.width / nx, y);
+      const v = sampleBilinear(gray, W, H, cx - L.width / 2 + (k + 0.5) * L.width / nx, y);
       if (v === v) { s += v; c++; }
     }
-    raw[i] = c ? s / c : 0;
+    raw[i] = c ? (inv ? 255 - s / c : s / c) : 0;
   }
   return { raw, n, key: null, smooth: null, base: null, corr: null, corrSmooth: null };
 }
@@ -1296,6 +1615,7 @@ function detectBands(L) {
     let best = null, bd = 3;
     for (const o of old) { const dd = Math.abs(o.rf - b.rf) * (n - 1); if (dd <= bd) { bd = dd; best = o; } }
     if (best && 'size' in best) b.size = best.size;
+    if (best && best.lab) b.lab = best.lab;
   }
   L.bands = list;
 }
@@ -1549,15 +1869,21 @@ function drawGel() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!state.img) return;
-  const v = state.view, { width: W, height: H } = state.img;
+  const v = state.view, { width: W, height: H } = state.img, capH = state.step === 5 ? captionHeight() : 0;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 24;
-  ctx.fillStyle = '#000'; ctx.fillRect(v.ox, v.oy, W * v.scale, H * v.scale);
+  ctx.fillStyle = '#000'; ctx.fillRect(v.ox, v.oy, W * v.scale, (H + capH) * v.scale);
   ctx.shadowBlur = 0;
   ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * v.ox, dpr * v.oy);
   ctx.imageSmoothingEnabled = v.scale < 2;
   ctx.drawImage(state.dispCanvas, 0, 0);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (state.step === 5) {
+    drawComposition(ctx, v.scale, v.ox, v.oy);
+    drawAnnotSelection(ctx);
+    refreshExportUI();
+    return;
+  }
   const step = state.step, hasFit = !!state.calib.fit;
   drawOverlays(ctx, toScreen, {
     u: 1, interactive: true, step,
@@ -1565,6 +1891,265 @@ function drawGel() {
     labels: step === 3 ? 'num' : (step === 4 || (step === 1 && hasFit)) ? 'size' : null,
   });
 }
+
+/* ---- Annotation composition (step 5) ----
+   Everything here is laid out in image-pixel units, then drawn with a scale k
+   (k = zoom on screen, k = export scale in a file), so the editor is WYSIWYG. */
+const FONT_STACKS = {
+  sans: 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif',
+  serif: '"Times New Roman", Times, Georgia, serif',
+  mono: 'ui-monospace, Menlo, Consolas, monospace',
+};
+const measureCtx = document.createElement('canvas').getContext('2d');
+const fontSpec = (px, bold) => `${bold ? 700 : 500} ${px}px ${FONT_STACKS[(state.annot.style || {}).font] || FONT_STACKS.sans}`;
+function textWidth(txt, size, bold) { measureCtx.font = fontSpec(100, bold); return measureCtx.measureText(txt).width * size / 100; }
+/** Dark text gets a white halo, light text a black one. */
+function haloFor(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.5 ? 'rgba(0,0,0,.85)' : 'rgba(255,255,255,.9)';
+}
+/** Whether the image as displayed is predominantly light (picks default annotation colours). */
+const imageLooksLight = () => (state.polarity === 'dark') !== !!state.display.invert;
+
+function defaultAnnotStyle() {
+  const base = Math.max(1, Math.max(state.img.width, state.img.height) / 1000), light = imageLooksLight();
+  return {
+    font: 'sans', bold: true, halo: true,
+    labelSize: Math.round(11 * base), labelColor: light ? '#111111' : '#ffffff',
+    laneSize: Math.round(12.5 * base), laneColor: light ? '#111111' : '#ffffff', laneAuto: true,
+    bandWidth: +(1.8 * base).toFixed(1), bandColor: light ? '#111111' : '#fbbf24', bandAuto: true,
+    laneLineWidth: +(1 * base).toFixed(1),
+  };
+}
+function resetAnnotations() {
+  const A = state.annot, base = Math.max(1, Math.max(state.img.width, state.img.height) / 1000);
+  const ink = imageLooksLight() ? '#111111' : '#ffffff';
+  A.style = defaultAnnotStyle();
+  A.items = []; A.sel = null; A.draft = null; A.caption = ''; A.undo = []; A.redo = [];
+  A.lineStyle = { dash: 'dashed', color: ink, width: Math.max(1, Math.round(2 * base)) };
+  A.textStyle = { size: Math.round(14 * base), color: ink, bold: true };
+  A.exp.scale = 1;
+  pendingSnap = null;
+  syncAnnotUI(); renderInspector();
+}
+
+function captionText() {
+  const A = state.annot;
+  if (A.caption.trim()) return A.caption.trim();
+  const C = state.calib, fit = C.fit, L = ladderLane();
+  if (!fit || !L) return '';
+  const preset = LADDER_PRESETS[C.preset] && LADDER_PRESETS[C.preset].sizes ? LADDER_PRESETS[C.preset].name : 'custom ladder';
+  const model = { linear: 'log-linear', quadratic: '2nd-order', cubic: '3rd-order', p2p: 'point-to-point' }[fit.model];
+  return `Ladder: lane ${laneIndex(L) + 1} (${preset}) · ${model} fit` + (fit.r2 != null ? ` · R² = ${fit.r2.toFixed(4)}` : '') + ' · ~ = extrapolated';
+}
+const captionHeight = () => (state.annot.style && state.annot.layers.caption && captionText() ? Math.round(state.annot.style.labelSize * 2.1) : 0);
+
+/** All drawable composition elements, in drawing order, in image-pixel coordinates. */
+function compositionElements() {
+  const A = state.annot, S = A.style, out = [];
+  if (!state.img || !S) return out;
+  state.lanes.forEach((L, li) => {
+    const yT = laneTop(L), yB = laneBot(L), hw = L.width / 2;
+    const laneCol = L.isLadder ? COLORS.ladder : COLORS.lane;
+    if (A.layers.lanes) out.push({ kind: 'laneBox', color: laneCol, pts: [[L.xTop - hw, yT], [L.xTop + hw, yT], [L.xBot + hw, yB], [L.xBot - hw, yB]] });
+    L.bands.forEach((b, bi) => {
+      const y = yT + b.rf * (yB - yT), cx = L.xTop + b.rf * (L.xBot - L.xTop);
+      if (A.layers.bands) out.push({ kind: 'bandLine', x1: cx - hw, x2: cx + hw, y, width: S.bandWidth, color: S.bandAuto ? (L.isLadder ? COLORS.ladder : COLORS.band) : S.bandColor });
+      if (!A.layers.labels) return;
+      const lab = b.lab || {}, auto = bandLabel(L, b, bi, 'size');
+      const text = lab.text ? lab.text : auto, size = lab.size || S.labelSize;
+      if (!text) return;
+      out.push({ kind: 'bandLabel', lane: L, band: b, text, size, bold: S.bold, hidden: !!lab.hidden, color: lab.color || S.labelColor,
+                 x: cx + (lab.dx || 0), y: y - S.bandWidth / 2 - 0.28 * size + (lab.dy || 0) });
+    });
+    if (A.layers.nums) {
+      const lab = L.numLab || {}, size = lab.size || S.laneSize;
+      out.push({ kind: 'laneLabel', lane: L, text: lab.text ? lab.text : `${li + 1}${L.isLadder ? ' M' : ''}`, size, bold: S.bold, hidden: !!lab.hidden,
+                 color: lab.color || (S.laneAuto ? laneCol : S.laneColor), x: L.xTop + (lab.dx || 0), y: Math.max(yT - 0.55 * size, size) + (lab.dy || 0) });
+    }
+  });
+  for (const it of A.items) {
+    if (it.type === 'text') out.push({ kind: 'text', item: it, text: it.text, size: it.size, bold: it.bold, color: it.color, x: it.x, y: it.y });
+    else out.push({ kind: 'line', item: it });
+  }
+  return out;
+}
+/** Bounding box of a text element (alphabetic baseline at e.y, centred on e.x). */
+function elBox(e) {
+  const w = textWidth(e.text, e.size, e.bold);
+  return { x0: e.x - w / 2, x1: e.x + w / 2, y0: e.y - 0.8 * e.size, y1: e.y + 0.25 * e.size };
+}
+const dashFor = (style, w) => style === 'dashed' ? [w * 4, w * 2.6] : style === 'dotted' ? [0.01, w * 2.2] : [];
+
+/** Draw the full annotated figure: image px (x,y) → (ox + x·k, oy + y·k). */
+function drawComposition(ctx, k, ox, oy) {
+  const A = state.annot, S = A.style; if (!S) return;
+  const M = (x, y) => [ox + x * k, oy + y * k], W = state.img.width, H = state.img.height;
+  ctx.save(); ctx.lineJoin = 'round';
+  for (const e of compositionElements()) {
+    if (e.hidden) continue;
+    switch (e.kind) {
+      case 'laneBox': {
+        ctx.beginPath(); e.pts.forEach(([x, y], i) => { const [px, py] = M(x, y); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+        ctx.closePath(); ctx.strokeStyle = hexA(e.color, 0.75); ctx.lineWidth = Math.max(0.5, S.laneLineWidth * k); ctx.setLineDash([]); ctx.stroke();
+        break;
+      }
+      case 'bandLine': {
+        const [ax, ay] = M(e.x1, e.y), [bx] = M(e.x2, e.y);
+        ctx.lineCap = 'round'; ctx.setLineDash([]);
+        if (S.halo) { ctx.strokeStyle = haloFor(e.color).replace(/[\d.]+\)$/, '.5)'); ctx.lineWidth = e.width * k * 1.9; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, ay); ctx.stroke(); }
+        ctx.strokeStyle = e.color; ctx.lineWidth = Math.max(0.5, e.width * k); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, ay); ctx.stroke();
+        break;
+      }
+      case 'line': {
+        const it = e.item, [ax, ay] = M(it.x1, it.y1), [bx, by] = M(it.x2, it.y2), w = Math.max(0.5, it.width * k);
+        ctx.lineCap = it.dash === 'dotted' ? 'round' : 'butt'; ctx.setLineDash(dashFor(it.dash, w));
+        ctx.strokeStyle = it.color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+        break;
+      }
+      default: {                                                        // bandLabel / laneLabel / text
+        const [x, y] = M(e.x, e.y), px = e.size * k;
+        ctx.font = fontSpec(px, e.bold); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+        if (S.halo) { ctx.lineWidth = Math.max(1, px * 0.22); ctx.strokeStyle = haloFor(e.color); ctx.setLineDash([]); ctx.strokeText(e.text, x, y); }
+        ctx.fillStyle = e.color; ctx.fillText(e.text, x, y);
+      }
+    }
+  }
+  const capH = captionHeight();
+  if (capH) {
+    const light = imageLooksLight(), [x0, y0] = M(0, H);
+    ctx.fillStyle = light ? '#ffffff' : '#0a0d12'; ctx.fillRect(x0, y0, W * k, capH * k);
+    ctx.font = fontSpec(S.labelSize * 0.95 * k, false); ctx.fillStyle = light ? '#1f2937' : '#cbd5e1';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(captionText(), x0 + S.labelSize * 0.7 * k, y0 + capH * k / 2);
+  }
+  ctx.restore();
+}
+
+/** Selection outline / line handles on screen. */
+function drawAnnotSelection(ctx) {
+  const A = state.annot, v = state.view, S = (x, y) => [v.ox + x * v.scale, v.oy + y * v.scale];
+  ctx.save();
+  if (A.draft) {
+    const d = A.draft, [ax, ay] = S(d.x1, d.y1), [bx, by] = S(d.x2, d.y2), w = Math.max(0.5, d.width * v.scale);
+    ctx.lineCap = d.dash === 'dotted' ? 'round' : 'butt'; ctx.setLineDash(dashFor(d.dash, w));
+    ctx.strokeStyle = d.color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  const sel = A.sel;
+  if (sel && sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    ctx.setLineDash([]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1;
+    const [ax, ay] = S(it.x1, it.y1), [bx, by] = S(it.x2, it.y2);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    [[ax, ay], [bx, by]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 2; ctx.stroke(); });
+  } else if (sel && sel.kind !== 'caption') {
+    const e = elementForSel(sel);
+    if (e && !e.hidden) {
+      const b = elBox(e), [x0, y0] = S(b.x0, b.y0), [x1, y1] = S(b.x1, b.y1);
+      ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 - 3, y0 - 2, x1 - x0 + 6, y1 - y0 + 4);
+    }
+  } else if (sel && sel.kind === 'caption' && captionHeight()) {
+    const [x0, y0] = S(0, state.img.height), [x1, y1] = S(state.img.width, state.img.height + captionHeight());
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+  }
+  ctx.restore();
+}
+
+/** Resolve a band selection to the current band object (bands are rebuilt on re-analysis). */
+function resolveBand(sel) {
+  if (sel.lane.bands.includes(sel.band)) return sel.band;
+  let best = null, bd = 0.006;
+  for (const b of sel.lane.bands) { const d = Math.abs(b.rf - sel.rf); if (d < bd) { bd = d; best = b; } }
+  if (best) sel.band = best;
+  return best;
+}
+function elementForSel(sel) {
+  if (!sel) return null;
+  const band = sel.kind === 'band' ? resolveBand(sel) : null;
+  return compositionElements().find(e =>
+    (sel.kind === 'item' && e.item === sel.item) ||
+    (sel.kind === 'band' && e.kind === 'bandLabel' && e.band === band) ||
+    (sel.kind === 'lane' && e.kind === 'laneLabel' && e.lane === sel.lane)) || null;
+}
+/** Label-override object for a selected band/lane label (created on demand). */
+function ensureLab(sel) {
+  if (sel.kind === 'lane') return (sel.lane.numLab = sel.lane.numLab || {});
+  const b = resolveBand(sel); if (!b) return {};
+  return (b.lab = b.lab || {});
+}
+
+/** Hit-test the composition at image point p (topmost first). */
+function annotHit(p) {
+  const A = state.annot, tol = 6 / state.view.scale;
+  const sel = A.sel;
+  if (sel && sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    if (Math.hypot(p.x - it.x1, p.y - it.y1) <= tol * 1.5) return { kind: 'end', item: it, end: 1 };
+    if (Math.hypot(p.x - it.x2, p.y - it.y2) <= tol * 1.5) return { kind: 'end', item: it, end: 2 };
+  }
+  const els = compositionElements();
+  for (let i = els.length - 1; i >= 0; i--) {
+    const e = els[i];
+    if (e.hidden) continue;
+    if (e.kind === 'line') {
+      const it = e.item, dx = it.x2 - it.x1, dy = it.y2 - it.y1, L2 = dx * dx + dy * dy || 1;
+      const t = clamp(((p.x - it.x1) * dx + (p.y - it.y1) * dy) / L2, 0, 1);
+      if (Math.hypot(p.x - (it.x1 + t * dx), p.y - (it.y1 + t * dy)) <= Math.max(tol, it.width / 2 + 2 / state.view.scale)) return { kind: 'item', item: it };
+    } else if (e.kind === 'text' || e.kind === 'bandLabel' || e.kind === 'laneLabel') {
+      const b = elBox(e);
+      if (p.x >= b.x0 - tol && p.x <= b.x1 + tol && p.y >= b.y0 - tol && p.y <= b.y1 + tol) {
+        if (e.kind === 'text') return { kind: 'item', item: e.item };
+        if (e.kind === 'bandLabel') return { kind: 'band', lane: e.lane, band: e.band, rf: e.band.rf };
+        return { kind: 'lane', lane: e.lane };
+      }
+    }
+  }
+  const capH = captionHeight(), H = state.img.height;
+  if (capH && p.y >= H && p.y <= H + capH && p.x >= 0 && p.x <= state.img.width) return { kind: 'caption' };
+  return null;
+}
+
+/* ---- Annotation undo / redo (JSON snapshots of everything the editor changes) ---- */
+let pendingSnap = null;
+function annotSnapshot() {
+  const A = state.annot;
+  return JSON.stringify({
+    items: A.items, style: A.style, layers: A.layers, caption: A.caption,
+    lanes: state.lanes.map(L => ({ id: L.id, lab: L.numLab || null, bands: L.bands.filter(b => b.lab).map(b => ({ rf: b.rf, lab: b.lab })) })),
+  });
+}
+function annotRestore(json) {
+  const s = JSON.parse(json), A = state.annot;
+  Object.assign(A, { items: s.items, style: s.style, layers: s.layers, caption: s.caption, sel: null });
+  for (const L of state.lanes) {
+    const ls = s.lanes.find(x => x.id === L.id);
+    L.numLab = ls ? ls.lab : null;
+    L.bands.forEach(b => { delete b.lab; });
+    if (ls) ls.bands.forEach(({ rf, lab }) => {
+      let best = null, bd = 0.01;
+      L.bands.forEach(b => { const d = Math.abs(b.rf - rf); if (d < bd) { bd = d; best = b; } });
+      if (best) best.lab = lab;
+    });
+  }
+  syncAnnotUI(); renderInspector(); invalidate('gel');
+}
+function pushUndo(snap) {
+  const A = state.annot;
+  A.undo.push(snap); if (A.undo.length > 100) A.undo.shift();
+  A.redo = []; updateUndoButtons();
+}
+/** Call before a change; endEdit() records an undo step if anything actually changed. */
+function beginEdit() { if (pendingSnap == null) pendingSnap = annotSnapshot(); }
+function endEdit() { if (pendingSnap != null) { if (pendingSnap !== annotSnapshot()) pushUndo(pendingSnap); pendingSnap = null; } }
+function undo() {
+  endEdit(); const A = state.annot; if (!A.undo.length) return;
+  A.redo.push(annotSnapshot()); annotRestore(A.undo.pop()); updateUndoButtons();
+}
+function redo() {
+  endEdit(); const A = state.annot; if (!A.redo.length) return;
+  A.undo.push(annotSnapshot()); annotRestore(A.redo.pop()); updateUndoButtons();
+}
+function updateUndoButtons() { $('#btnUndo').disabled = !state.annot.undo.length; $('#btnRedo').disabled = !state.annot.redo.length; }
 
 /* ---- Electropherogram ---- */
 const prof = { canvas: $('#profileCanvas'), ctx: $('#profileCanvas').getContext('2d'), w: 0, h: 0, dpr: 1, m: { l: 50, r: 14, t: 26, b: 30 } };
@@ -1757,22 +2342,27 @@ const STEP_HINTS = {
   1: '<b>Image</b>: scroll to zoom · drag to pan · adjust display, then continue to Lanes',
   2: '<b>Lanes</b>: drag lanes · <b>●</b> handles fix smile/slant · drag edges to resize · drag dashed lines for wells/front',
   3: '<b>Bands</b>: click the selected lane to add a band · right-click a band to delete · drag a band to move',
-  4: '<b>Calibration</b>: sizes are interpolated from the ladder standard curve · export the PNG or CSV',
+  4: '<b>Calibration</b>: sizes are interpolated from the ladder standard curve · continue to Annotate &amp; Export',
+  5: '<b>Annotate</b>: drag labels to move · <kbd>L</kbd> line · <kbd>T</kbd> text · <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo',
 };
 function goStep(n) {
+  if (state.step === 5 && n !== 5) { endEdit(); setTool('select'); }
   state.step = n;
   $$('.step').forEach(b => b.classList.toggle('active', +b.dataset.step === n));
   $$('.panel').forEach(p => p.classList.toggle('active', +p.dataset.panel === n));
   $('#modeHint').innerHTML = STEP_HINTS[n];
-  $('#stHint').textContent = ['Image', 'Lanes', 'Bands', 'Calibration & results'][n - 1] + ' mode';
+  $('#stHint').textContent = ['Image', 'Lanes', 'Bands', 'Calibration & results', 'Annotate & export'][n - 1] + ' mode';
   $('#sidebar').scrollTop = 0;
+  if (n === 5) { flush(); syncAnnotUI(); renderInspector(); }
   invalidate('gel', 'profile', 'calib');
 }
 
 function updateImageMeta() {
   const im = state.img;
   if (!im) { $('#imgMeta').textContent = 'No image loaded'; $('#stImg').textContent = 'no image'; return; }
-  $('#imgMeta').innerHTML = `${escapeHtml(state.fileName)}<br>${im.width} × ${im.height} px${im.scaled ? ' (downscaled)' : ''}`;
+  const B = state.base;
+  $('#imgMeta').innerHTML = `${escapeHtml(state.fileName)}<br>${B.origW} × ${B.origH} px · ${B.bits}-bit ${im.rgba ? 'RGB' : 'grayscale'}`
+    + (B.scaled ? `<br><span style="color:var(--warn)">Working copy ${im.width} × ${im.height} px (over ${MAX_PIXELS / 1e6} MP limit)</span>` : '');
   $('#stImg').textContent = `${im.width}×${im.height}`;
 }
 
@@ -1924,21 +2514,22 @@ function initUI() {
   bindRange('contrast', v => { state.display.contrast = v; renderDisplayThrottled(); });
   bindRange('gamma', v => { state.display.gamma = v; renderDisplayThrottled(); }, v => v.toFixed(2));
   $('#btnResetDisplay').addEventListener('click', () => {
-    Object.assign(state.display, { invert: false, brightness: 0, contrast: 0, gamma: 1 });
-    $('#invert').checked = false; $('#brightness').value = 0; $('#contrast').value = 0; $('#gamma').value = 1;
-    ['brightness', 'contrast', 'gamma'].forEach(id => $('#' + id).dispatchEvent(new Event('input')));
+    Object.assign(state.display, { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 });
+    syncDisplayControls();
+    if (state.img && state.img.bits > 8) autoLevels(true);
     renderDisplay();
   });
   $$('#polaritySeg button').forEach(b => b.addEventListener('click', () => {
     state.polarity = b.dataset.v;
     $$('#polaritySeg button').forEach(x => x.classList.toggle('on', x === b));
     $('#polarityHint').textContent = state.polarity === 'bright' ? 'Bands are brighter than the background (fluorescent stains under UV/blue light).' : 'Bands are darker than the background (colorimetric stains, or inverted images).';
-    if (state.img) { buildSignal(); invalidate('analysis'); }
+    if (state.img) { state.lanes.forEach(invalidateLane); invalidate('analysis'); }
   }));
-  $('#rotL').addEventListener('click', () => { state.rotation90--; reorient(true); });
-  $('#rotR').addEventListener('click', () => { state.rotation90++; reorient(true); });
-  $('#flipH').addEventListener('click', () => { state.flipH = !state.flipH; reorient(true); });
-  bindRange('fineRot', v => { state.fineRotation = v; reorient(false); }, v => v.toFixed(1) + '°', 'change');
+  $('#rotL').addEventListener('click', () => reorient('ccw'));
+  $('#rotR').addEventListener('click', () => reorient('cw'));
+  $('#flipH').addEventListener('click', () => reorient('flip'));
+  bindRange('fineRot', v => { state.fineRotation = v; reorient('fine'); }, v => v.toFixed(1) + '°', 'change');
+  $('#btnAutoLevels').addEventListener('click', () => autoLevels(false));
 
   // Lanes
   $('#btnGrid').addEventListener('click', () => {
@@ -2019,10 +2610,9 @@ function initUI() {
   });
   $('#fitModel').addEventListener('change', e => { state.calib.model = e.target.value; invalidate('analysis'); });
 
-  // Export options
-  [['exLanes', 'lanes'], ['exNums', 'nums'], ['exBands', 'bands'], ['exLabels', 'labels'], ['exCaption', 'caption']].forEach(([id, k]) =>
-    $('#' + id).addEventListener('change', e => { state.exportOpts[k] = e.target.checked; }));
-  ['#btnExportPng', '#btnExportPng2'].forEach(s => $(s).addEventListener('click', exportPNG));
+  // Export
+  initAnnotUI();
+  ['#btnExportPng', '#btnExportPng2'].forEach(s => $(s).addEventListener('click', exportImage));
   ['#btnExportCsv', '#btnExportCsv2', '#btnExportCsv3'].forEach(s => $(s).addEventListener('click', exportCSV));
   $('#btnProfileCsv').addEventListener('click', exportProfileCSV);
 
@@ -2060,6 +2650,192 @@ function initUI() {
     const up = () => { rz.classList.remove('drag'); rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); };
     rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up);
   });
+}
+
+/** Reflect state.display in the Image-step controls. */
+function syncDisplayControls() {
+  const d = state.display;
+  $('#invert').checked = d.invert; $('#brightness').value = d.brightness; $('#contrast').value = d.contrast; $('#gamma').value = d.gamma;
+  $('#brightnessOut').textContent = d.brightness; $('#contrastOut').textContent = d.contrast; $('#gammaOut').textContent = d.gamma.toFixed(2);
+}
+
+/* ---- Step 5: Annotate & Export panel ---- */
+const MAX_EXPORT_SIDE = 16384, MAX_EXPORT_PIXELS = 180e6;
+const DASH_ICONS = {
+  solid: '<svg width="34" height="8"><line x1="2" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2"/></svg>',
+  dashed: '<svg width="34" height="8"><line x1="2" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="7 4"/></svg>',
+  dotted: '<svg width="34" height="8"><line x1="3" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2.4" stroke-dasharray="0.1 5" stroke-linecap="round"/></svg>',
+};
+
+function setTool(t) {
+  state.annot.tool = t; state.annot.draft = null;
+  $$('#toolSeg button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  gel.canvas.style.cursor = t === 'line' ? 'crosshair' : t === 'text' ? 'text' : 'default';
+}
+function annotSelect(sel) {
+  state.annot.sel = sel;
+  renderInspector(); invalidate('gel');
+}
+
+/** Push global style / layer / export state into the step-5 controls. */
+function syncAnnotUI() {
+  const A = state.annot, S = A.style;
+  if (S) {
+    $('#stFont').value = S.font; $('#stBold').checked = S.bold; $('#stHalo').checked = S.halo;
+    $('#stLabelSize').value = S.labelSize; $('#stLabelColor').value = S.labelColor;
+    $('#stLaneSize').value = S.laneSize; $('#stLaneColor').value = S.laneColor; $('#stLaneAuto').checked = S.laneAuto;
+    $('#stBandWidth').value = S.bandWidth; $('#stBandColor').value = S.bandColor; $('#stBandAuto').checked = S.bandAuto;
+    $('#stLaneColor').disabled = S.laneAuto; $('#stBandColor').disabled = S.bandAuto;
+  }
+  [['exLanes', 'lanes'], ['exNums', 'nums'], ['exBands', 'bands'], ['exLabels', 'labels'], ['exCaption', 'caption']].forEach(([id, k]) => { $('#' + id).checked = A.layers[k]; });
+  if (document.activeElement !== $('#captionText')) $('#captionText').value = A.caption;
+  $('#captionText').placeholder = captionText() && !A.caption ? captionText() : 'Automatic calibration summary';
+  $('#exFormat').value = A.exp.format; $('#exDpi').value = A.exp.dpi; $('#exSmooth').checked = A.exp.smooth;
+  refreshExportUI(); updateUndoButtons();
+}
+
+/** Export resolution choices with their pixel size; oversize choices are disabled. */
+function refreshExportUI() {
+  const A = state.annot, X = A.exp, sel = $('#exScale');
+  if (!state.img) { sel.innerHTML = '<option>Load an image first</option>'; $('#exInfo').textContent = ''; return; }
+  const W = state.img.width, H = state.img.height + captionHeight();
+  const fits = s => Math.round(W * s) <= MAX_EXPORT_SIDE && Math.round(H * s) <= MAX_EXPORT_SIDE && W * H * s * s <= MAX_EXPORT_PIXELS;
+  if (!fits(X.scale)) X.scale = 1;
+  const html = [1, 2, 3, 4].map(s => `<option value="${s}"${fits(s) ? '' : ' disabled'}${X.scale === s ? ' selected' : ''}>${s === 1 ? 'Native' : s + '×'} — ${Math.round(W * s)} × ${Math.round(H * s)} px${fits(s) ? '' : ' (too large)'}</option>`).join('');
+  if (refreshExportUI.html !== html) { sel.innerHTML = html; refreshExportUI.html = html; }
+  const w = Math.round(W * X.scale), h = Math.round(H * X.scale), cm = v => (v / X.dpi * 2.54).toFixed(1), inch = v => (v / X.dpi).toFixed(2);
+  const B = state.base, src = B ? `Source ${B.origW} × ${B.origH} px${B.bits > 8 ? ` (${B.bits}-bit)` : ''}${B.scaled ? ', analysed downscaled' : ''}.` : '';
+  const info = `${w} × ${h} px · ${(w * h / 1e6).toFixed(1)} MP<br>Print size at ${X.dpi} dpi: ${cm(w)} × ${cm(h)} cm (${inch(w)} × ${inch(h)} in)<br>${src}`;
+  if (refreshExportUI.info !== info) { $('#exInfo').innerHTML = info; refreshExportUI.info = info; }
+}
+
+/** Context-sensitive property editor for the selected label, line or text. */
+function renderInspector() {
+  const A = state.annot, sel = A.sel, box = $('#annotInspector');
+  if (!box) return;
+  const kindName = !sel ? '' : sel.kind === 'item' ? (sel.item.type === 'line' ? 'Line' : 'Text') : sel.kind === 'band' ? 'Size label' : sel.kind === 'lane' ? 'Lane label' : 'Caption';
+  $('#selKind').textContent = kindName;
+  if (!sel) {
+    box.innerHTML = '<div class="hint" style="margin-top:0">Click a label, line or text on the gel to edit it. Drag to move. Use the tools above to add lines or text.</div>';
+    return;
+  }
+  if (sel.kind === 'caption') {
+    box.innerHTML = '<div class="hint" style="margin-top:0">Edit the caption text in <b>Layers</b> below.</div>';
+    return;
+  }
+  if (sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    box.innerHTML = `
+      <div class="lbl">Line style</div>
+      <div class="seg dash-seg">${['solid', 'dashed', 'dotted'].map(d => `<button data-act="dash" data-v="${d}" class="${it.dash === d ? 'on' : ''}" title="${d[0].toUpperCase() + d.slice(1)}">${DASH_ICONS[d]}</button>`).join('')}</div>
+      <div class="prop"><span>Width / colour</span><input type="number" data-prop="width" min="0.5" max="500" step="0.5" value="${it.width}"><input type="color" data-prop="color" value="${it.color}"></div>
+      <div class="btn-row"><button class="btn sm danger" data-act="delete">Delete line</button></div>`;
+    return;
+  }
+  if (sel.kind === 'item') {
+    const it = sel.item;
+    box.innerHTML = `
+      <div class="field"><label>Text</label><input type="text" data-prop="text" id="insText" value="${escapeHtml(it.text)}"></div>
+      <div class="prop"><span>Size / colour</span><input type="number" data-prop="size" min="1" max="2000" step="1" value="${it.size}"><input type="color" data-prop="color" value="${it.color}"></div>
+      <label class="check" style="margin-top:0"><input type="checkbox" data-prop="bold"${it.bold ? ' checked' : ''}> Bold</label>
+      <div class="btn-row"><button class="btn sm danger" data-act="delete">Delete text</button></div>`;
+    return;
+  }
+  const e = elementForSel(sel), lab = (sel.kind === 'lane' ? sel.lane.numLab : (resolveBand(sel) || {}).lab) || {};
+  const S = A.style, li = laneIndex(sel.lane) + 1;
+  const autoText = sel.kind === 'lane' ? `${li}${sel.lane.isLadder ? ' M' : ''}` : (() => { const b = resolveBand(sel); return b ? bandLabel(sel.lane, b, sel.lane.bands.indexOf(b), 'size') : ''; })();
+  const color = lab.color || (e ? e.color : S.labelColor);
+  box.innerHTML = `
+    <div class="field"><label>Text <span class="faint">${sel.kind === 'lane' ? `lane ${li}` : `lane ${li} band`}</span></label><input type="text" data-prop="text" id="insText" placeholder="${escapeHtml(autoText)}" value="${escapeHtml(lab.text || '')}"></div>
+    <div class="prop"><span>Size / colour</span><input type="number" data-prop="size" min="1" max="2000" step="1" placeholder="${sel.kind === 'lane' ? S.laneSize : S.labelSize}" value="${lab.size || ''}"><input type="color" data-prop="color" value="${color}"></div>
+    <label class="check" style="margin-top:0"><input type="checkbox" data-prop="hidden"${lab.hidden ? ' checked' : ''}> Hide this label</label>
+    <div class="btn-row"><button class="btn sm" data-act="resetPos">Reset position</button><button class="btn sm" data-act="resetStyle">Reset text &amp; style</button></div>
+    <div class="hint">Leave text empty to use the automatic ${sel.kind === 'lane' ? 'lane number' : 'size'}.</div>`;
+}
+
+function applyInspector(el) {
+  const A = state.annot, sel = A.sel, prop = el.dataset.prop;
+  if (!sel || !prop) return;
+  beginEdit();
+  const v = el.type === 'checkbox' ? el.checked : el.value;
+  if (sel.kind === 'item') {
+    const it = sel.item;
+    if (prop === 'size' || prop === 'width') { const n = +v; if (!(n > 0)) return; it[prop] = clamp(n, 0.5, 2000); }
+    else it[prop] = v;
+    if (it.type === 'line') Object.assign(A.lineStyle, { dash: it.dash, color: it.color, width: it.width });   // remember for the next line
+    else Object.assign(A.textStyle, { size: it.size, color: it.color, bold: it.bold });
+  } else {
+    const lab = ensureLab(sel);
+    if (prop === 'size') lab.size = v === '' || !(+v > 0) ? undefined : clamp(+v, 1, 2000);
+    else lab[prop] = v;
+  }
+  invalidate('gel');
+}
+
+function deleteAnnotSel() {
+  const A = state.annot, sel = A.sel; if (!sel || sel.kind === 'caption') return;
+  beginEdit();
+  if (sel.kind === 'item') { A.items = A.items.filter(i => i !== sel.item); A.sel = null; }
+  else ensureLab(sel).hidden = true;
+  endEdit(); renderInspector(); invalidate('gel');
+}
+
+function initAnnotUI() {
+  const A = state.annot, panel = $('#panel5');
+  $$('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+  $('#btnUndo').addEventListener('click', undo);
+  $('#btnRedo').addEventListener('click', redo);
+
+  // Undo bookkeeping for every control in the panel: one undo step per focused edit.
+  panel.addEventListener('focusout', e => { if (e.target.matches('input,select,textarea')) endEdit(); });
+  panel.addEventListener('change', e => { if (e.target.matches('input[type=checkbox],input[type=color],select')) endEdit(); });
+
+  // Inspector (delegated, rebuilt per selection)
+  const ins = $('#annotInspector');
+  ins.addEventListener('input', e => { if (e.target.dataset.prop) applyInspector(e.target); });
+  ins.addEventListener('change', e => { if (e.target.dataset.prop) { applyInspector(e.target); endEdit(); } });
+  ins.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b || !A.sel) return;
+    const act = b.dataset.act;
+    if (act === 'delete') return deleteAnnotSel();
+    beginEdit();
+    if (act === 'dash') { A.sel.item.dash = b.dataset.v; A.lineStyle.dash = b.dataset.v; }
+    if (act === 'resetPos') { const lab = ensureLab(A.sel); delete lab.dx; delete lab.dy; }
+    if (act === 'resetStyle') { const lab = ensureLab(A.sel); ['text', 'size', 'color', 'hidden'].forEach(k => delete lab[k]); }
+    endEdit(); renderInspector(); invalidate('gel');
+  });
+
+  // Global label style
+  const styleBind = (id, key, num) => {
+    const el = $('#' + id), ev = el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(ev, () => {
+      if (!A.style) return;
+      beginEdit();
+      const v = el.type === 'checkbox' ? el.checked : num ? +el.value : el.value;
+      if (num && !(v > 0)) return;
+      A.style[key] = v;
+      $('#stLaneColor').disabled = A.style.laneAuto; $('#stBandColor').disabled = A.style.bandAuto;
+      invalidate('gel'); refreshExportUI();
+    });
+  };
+  [['stFont', 'font'], ['stBold', 'bold'], ['stHalo', 'halo'], ['stLabelColor', 'labelColor'], ['stLaneColor', 'laneColor'], ['stLaneAuto', 'laneAuto'],
+   ['stBandColor', 'bandColor'], ['stBandAuto', 'bandAuto']].forEach(([id, k]) => styleBind(id, k, false));
+  [['stLabelSize', 'labelSize'], ['stLaneSize', 'laneSize'], ['stBandWidth', 'bandWidth']].forEach(([id, k]) => styleBind(id, k, true));
+  const forAllLabs = fn => state.lanes.forEach(L => { if (L.numLab) fn(L.numLab); L.bands.forEach(b => { if (b.lab) fn(b.lab); }); });
+  $('#btnResetLabelPos').addEventListener('click', () => { beginEdit(); forAllLabs(l => { delete l.dx; delete l.dy; }); endEdit(); invalidate('gel'); toast('All labels moved back to their default positions.'); });
+  $('#btnShowHidden').addEventListener('click', () => { beginEdit(); forAllLabs(l => { delete l.hidden; }); endEdit(); renderInspector(); invalidate('gel'); });
+  $('#btnResetStyle').addEventListener('click', () => { if (!state.img) return; beginEdit(); A.style = defaultAnnotStyle(); endEdit(); syncAnnotUI(); invalidate('gel'); });
+
+  // Layers & caption
+  [['exLanes', 'lanes'], ['exNums', 'nums'], ['exBands', 'bands'], ['exLabels', 'labels'], ['exCaption', 'caption']].forEach(([id, k]) =>
+    $('#' + id).addEventListener('change', e => { beginEdit(); A.layers[k] = e.target.checked; invalidate('gel'); refreshExportUI(); }));
+  $('#captionText').addEventListener('input', e => { beginEdit(); A.caption = e.target.value; invalidate('gel'); refreshExportUI(); });
+
+  // Export settings
+  $('#exScale').addEventListener('change', e => { A.exp.scale = +e.target.value || 1; refreshExportUI(); });
+  $('#exDpi').addEventListener('change', e => { A.exp.dpi = +e.target.value; refreshExportUI(); });
+  $('#exFormat').addEventListener('change', e => { A.exp.format = e.target.value; });
+  $('#exSmooth').addEventListener('change', e => { A.exp.smooth = e.target.checked; });
 }
 
 function setLadder(L) {
@@ -2127,6 +2903,7 @@ function updateHoverCursor(p) {
   const c = gel.canvas;
   if (!state.img) { c.style.cursor = 'default'; return; }
   if (spaceDown) { c.style.cursor = 'grab'; return; }
+  if (state.step === 5) { annotHoverCursor(p); return; }
   if (state.step === 2) { const h = hitLanes(p); c.style.cursor = h ? CURSORS[h.type] : 'default'; return; }
   if (state.step >= 3 && hitBand(p)) { c.style.cursor = 'ns-resize'; return; }
   const L = hitLaneBody(p);
@@ -2139,7 +2916,114 @@ function updateStatus(p) {
   const inside = x >= 0 && y >= 0 && x < W && y < H;
   $('#stX').textContent = inside ? x : '—';
   $('#stY').textContent = inside ? y : '—';
-  $('#stI').textContent = inside ? gray[y * W + x].toFixed(0) : '—';
+  $('#stI').textContent = inside ? (state.img.bits === 16 ? Math.round(gray[y * W + x] * 257) : gray[y * W + x].toFixed(state.img.bits > 8 ? 1 : 0)) : '—';
+}
+
+/* ---- Step 5 pointer handling: select / move labels, draw lines, place text ---- */
+/** Constrain (x, y) to 45° steps around (x0, y0). */
+function snap45(x0, y0, x, y) {
+  const a = Math.round(Math.atan2(y - y0, x - x0) / (Math.PI / 4)) * (Math.PI / 4), r = Math.hypot(x - x0, y - y0);
+  return [x0 + r * Math.cos(a), y0 + r * Math.sin(a)];
+}
+function annotPointerDown(e, p, base) {
+  const A = state.annot, c = gel.canvas;
+  if (e.button !== 0) return false;
+  if (A.tool === 'line') {
+    beginEdit();
+    A.draft = { type: 'line', x1: p.x, y1: p.y, x2: p.x, y2: p.y, ...A.lineStyle };
+    drag = { ...base, type: 'annDraw' };
+    return true;
+  }
+  if (A.tool === 'text') {
+    beginEdit();
+    const it = { id: A.nextId++, type: 'text', x: p.x, y: p.y, text: 'Label', ...A.textStyle };
+    A.items.push(it); endEdit();
+    setTool('select'); annotSelect({ kind: 'item', item: it });
+    drag = { ...base, type: 'annText' };                              // focus the text box on pointerup
+    return true;
+  }
+  const h = annotHit(p);
+  if (!h) { annotSelect(null); drag = { ...base, type: 'pan' }; return true; }
+  if (h.kind === 'caption') { annotSelect(h); $('#captionText').focus(); return true; }
+  beginEdit();
+  if (h.kind === 'end') { drag = { ...base, type: 'annEnd', item: h.item, end: h.end, orig: { ...h.item } }; c.style.cursor = 'grabbing'; return true; }
+  annotSelect(h);
+  let orig;
+  if (h.kind === 'item') orig = { ...h.item };
+  else { const lab = ensureLab(h); orig = { dx: lab.dx || 0, dy: lab.dy || 0 }; }
+  drag = { ...base, type: 'annMove', target: h, orig };
+  c.style.cursor = 'grabbing';
+  return true;
+}
+function annotPointerMove(e, p, dx, dy) {
+  const A = state.annot, d = drag;
+  if (d.type === 'annDraw') {
+    const D = A.draft; [D.x2, D.y2] = e.shiftKey ? snap45(D.x1, D.y1, p.x, p.y) : [p.x, p.y];
+  } else if (d.type === 'annEnd') {
+    const it = d.item, o = d.orig, fx = d.end === 1 ? o.x2 : o.x1, fy = d.end === 1 ? o.y2 : o.y1;
+    const [x, y] = e.shiftKey ? snap45(fx, fy, p.x, p.y) : [p.x, p.y];
+    if (d.end === 1) { it.x1 = x; it.y1 = y; } else { it.x2 = x; it.y2 = y; }
+  } else if (d.type === 'annMove') {
+    if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }   // move along one axis
+    const t = d.target, o = d.orig;
+    if (t.kind === 'item' && t.item.type === 'line') Object.assign(t.item, { x1: o.x1 + dx, y1: o.y1 + dy, x2: o.x2 + dx, y2: o.y2 + dy });
+    else if (t.kind === 'item') Object.assign(t.item, { x: o.x + dx, y: o.y + dy });
+    else { const lab = ensureLab(t); lab.dx = o.dx + dx; lab.dy = o.dy + dy; }
+  } else return false;
+  invalidate('gel');
+  return true;
+}
+function annotPointerUp(d) {
+  const A = state.annot;
+  if (d.type === 'annDraw') {
+    const D = A.draft; A.draft = null;
+    if (Math.hypot(D.x2 - D.x1, D.y2 - D.y1) * state.view.scale >= 4) {
+      D.id = A.nextId++; A.items.push(D); endEdit();
+      setTool('select'); annotSelect({ kind: 'item', item: D });
+    } else { pendingSnap = null; invalidate('gel'); }
+    return true;
+  }
+  if (d.type === 'annText') {
+    // Focusing during pointerdown would be undone by the browser's mousedown focus handling.
+    const inp = $('#insText'); if (inp) { inp.focus(); inp.select(); }
+    return true;
+  }
+  if (d.type === 'annMove' || d.type === 'annEnd') {
+    if (d.moved) endEdit(); else pendingSnap = null;
+    renderInspector();
+    return true;
+  }
+  return false;
+}
+function annotHoverCursor(p) {
+  const A = state.annot, c = gel.canvas;
+  if (A.tool !== 'select') { c.style.cursor = A.tool === 'line' ? 'crosshair' : 'text'; return; }
+  const h = annotHit(p);
+  c.style.cursor = !h ? 'default' : h.kind === 'end' ? 'pointer' : h.kind === 'caption' ? 'text' : 'move';
+}
+/** Keyboard shortcuts while annotating. Returns true when handled. */
+function annotKey(e) {
+  const A = state.annot, mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (mod && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); return true; }
+  if (mod && k === 'y') { redo(); e.preventDefault(); return true; }
+  if (mod) return false;
+  if (k === 'v') { setTool('select'); return true; }
+  if (k === 'l') { setTool('line'); return true; }
+  if (k === 't') { setTool('text'); return true; }
+  if (e.key === 'Escape') { setTool('select'); annotSelect(null); return true; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { deleteAnnotSel(); e.preventDefault(); return true; }
+  if (A.sel && A.sel.kind !== 'caption' && e.key.startsWith('Arrow')) {
+    const step = Math.max(1, 1 / state.view.scale) * (e.shiftKey ? 10 : 1);
+    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    beginEdit();
+    const s = A.sel;
+    if (s.kind === 'item' && s.item.type === 'line') { s.item.x1 += dx; s.item.x2 += dx; s.item.y1 += dy; s.item.y2 += dy; }
+    else if (s.kind === 'item') { s.item.x += dx; s.item.y += dy; }
+    else { const lab = ensureLab(s); lab.dx = (lab.dx || 0) + dx; lab.dy = (lab.dy || 0) + dy; }
+    clearTimeout(annotKey.t); annotKey.t = setTimeout(endEdit, 600);   // group a burst of nudges into one undo step
+    invalidate('gel'); e.preventDefault(); return true;
+  }
+  return false;
 }
 
 function initPointer() {
@@ -2154,10 +3038,13 @@ function initPointer() {
 
   c.addEventListener('pointerdown', e => {
     if (!state.img) return;
+    // Release focus from sidebar inputs so keyboard shortcuts act on the canvas.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     c.setPointerCapture(e.pointerId);
     const sp = evPt(e, c), p = toImage(sp.x, sp.y);
     const base = { sx: sp.x, sy: sp.y, p0: p, moved: false, ox: state.view.ox, oy: state.view.oy };
     if (e.button === 1 || spaceDown || (e.button === 0 && e.altKey)) { drag = { ...base, type: 'pan' }; c.style.cursor = 'grabbing'; return; }
+    if (state.step === 5) { annotPointerDown(e, p, base); return; }
     if (e.button === 2) {
       if (state.step >= 3) {
         const hb = hitBand(p);
@@ -2195,6 +3082,7 @@ function initPointer() {
     const dxs = sp.x - drag.sx, dys = sp.y - drag.sy;
     if (Math.hypot(dxs, dys) > 3) drag.moved = true;
     const dx = dxs / state.view.scale, dy = dys / state.view.scale, L = drag.lane, o = drag.orig;
+    if (state.step === 5 && annotPointerMove(e, p, dx, dy)) return;
     switch (drag.type) {
       case 'laneClick': if (!drag.moved) break; drag.type = 'pan'; c.style.cursor = 'grabbing'; /* falls through */
       case 'pan': state.view.ox = drag.ox + dxs; state.view.oy = drag.oy + dys; invalidate('gel'); break;
@@ -2225,6 +3113,7 @@ function initPointer() {
     if (!drag) return;
     const d = drag; drag = null;
     const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    if (state.step === 5) { annotPointerUp(d); annotHoverCursor(p); return; }
     if (d.type === 'laneClick' && !d.moved) {
       if (state.step === 3 && d.lane === state.sel) {
         addBandAt(d.lane, (d.p0.y - laneTop(d.lane)) / (laneBot(d.lane) - laneTop(d.lane)));
@@ -2238,6 +3127,11 @@ function initPointer() {
   };
   c.addEventListener('pointerup', end);
   c.addEventListener('pointercancel', end);
+  c.addEventListener('dblclick', e => {
+    if (state.step !== 5) return;
+    const sp = evPt(e, c), h = annotHit(toImage(sp.x, sp.y));
+    if (h && h.kind !== 'end' && h.kind !== 'caption') { annotSelect(h); const inp = $('#insText'); if (inp) { inp.focus(); inp.select(); } }
+  });
   c.addEventListener('pointerleave', () => { if (!drag) { ['#stX', '#stY', '#stI'].forEach(s => $(s).textContent = '—'); } });
 
   // Electropherogram: hover, click to add, right-click to delete.
@@ -2275,6 +3169,7 @@ function initPointer() {
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
     if (e.code === 'Space') { spaceDown = true; e.preventDefault(); return; }
     if (!state.img) return;
+    if (state.step === 5 && annotKey(e)) return;
     switch (e.key) {
       case 'f': case 'F': fitView(); break;
       case '1': zoomTo(1); break;
@@ -2303,41 +3198,104 @@ function download(blob, name) {
 }
 const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
 
-/** Annotated gel at native resolution, with size labels drawn above each band. */
-function exportPNG() {
-  if (!state.img) return toast('Load an image first.');
-  flush();
-  const { width: W, height: H } = state.img, o = state.exportOpts;
-  const u = Math.max(1, Math.max(W, H) / 1000);
-  const C = state.calib, fit = C.fit, captionH = o.caption && fit ? Math.round(22 * u) : 0;
-  const c = document.createElement('canvas'); c.width = W; c.height = H + captionH;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(state.dispCanvas, 0, 0);
-  drawOverlays(ctx, (x, y) => ({ x, y }), {
-    u, interactive: false, step: 4, guides: false,
-    lanes: o.lanes, nums: o.nums, bands: o.bands, labels: o.labels ? 'size' : null, labelSize: 11,
-  });
-  if (captionH) {
-    ctx.fillStyle = '#0a0d12'; ctx.fillRect(0, H, W, captionH);
-    const preset = LADDER_PRESETS[C.preset] && LADDER_PRESETS[C.preset].sizes ? LADDER_PRESETS[C.preset].name : 'custom ladder';
-    const L = ladderLane();
-    const txt = `Ladder: lane ${laneIndex(L) + 1} (${preset}) · ${{ linear: 'log-linear', quadratic: '2nd-order', cubic: '3rd-order', p2p: 'point-to-point' }[fit.model]} fit` + (fit.r2 != null ? ` · R² = ${fit.r2.toFixed(4)}` : '') + ' · ~ = extrapolated';
-    ctx.font = `500 ${11 * u}px ${getComputedStyle(document.body).fontFamily}`; ctx.fillStyle = '#cbd5e1';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(txt, 8 * u, H + captionH / 2);
+/* ---- Resolution metadata & TIFF writer ---- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+
+/** Insert a pHYs chunk (pixels per metre) so the PNG carries its intended print DPI. */
+async function pngWithDpi(blob, dpi) {
+  const src = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(src.buffer), ppm = Math.round(dpi / 0.0254);
+  const phys = new Uint8Array(21), pdv = new DataView(phys.buffer);
+  pdv.setUint32(0, 9); phys.set([0x70, 0x48, 0x59, 0x73], 4); pdv.setUint32(8, ppm); pdv.setUint32(12, ppm); phys[16] = 1;
+  pdv.setUint32(17, crc32(phys.subarray(4, 17)));
+  const parts = [src.subarray(0, 8)];
+  for (let p = 8; p + 8 <= src.length;) {
+    const len = dv.getUint32(p), type = String.fromCharCode(src[p + 4], src[p + 5], src[p + 6], src[p + 7]), end = p + 12 + len;
+    if (type !== 'pHYs') parts.push(src.subarray(p, end));
+    if (type === 'IHDR') parts.push(phys);
+    p = end;
+    if (type === 'IEND') break;
   }
-  c.toBlob(b => { download(b, `${state.fileName}_annotated.png`); toast('Annotated PNG exported.'); }, 'image/png');
+  return new Blob(parts, { type: 'image/png' });
+}
+/** Write the DPI into the JFIF APP0 header of a JPEG. */
+async function jpegWithDpi(blob, dpi) {
+  const b = new Uint8Array(await blob.arrayBuffer());
+  if (b[2] === 0xff && b[3] === 0xe0 && b[6] === 0x4a && b[7] === 0x46 && b[8] === 0x49 && b[9] === 0x46) {
+    b[13] = 1; b[14] = dpi >> 8; b[15] = dpi & 255; b[16] = dpi >> 8; b[17] = dpi & 255;
+  }
+  return new Blob([b], { type: 'image/jpeg' });
+}
+/** Baseline uncompressed 8-bit RGB TIFF with X/Y resolution (lossless, accepted by journals). */
+function encodeTiff(rgba, W, H, dpi) {
+  const nTags = 12, ifdSize = 2 + nTags * 12 + 4, bpsOff = 8 + ifdSize, xresOff = bpsOff + 6, yresOff = xresOff + 8, dataOff = yresOff + 8;
+  const dataLen = W * H * 3, buf = new ArrayBuffer(dataOff + dataLen), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  u8[0] = u8[1] = 0x49; dv.setUint16(2, 42, true); dv.setUint32(4, 8, true);
+  let p = 8; dv.setUint16(p, nTags, true); p += 2;
+  const tag = (t, type, count, val) => {
+    dv.setUint16(p, t, true); dv.setUint16(p + 2, type, true); dv.setUint32(p + 4, count, true);
+    if (type === 3 && count === 1) dv.setUint16(p + 8, val, true); else dv.setUint32(p + 8, val, true);
+    p += 12;
+  };
+  tag(256, 4, 1, W); tag(257, 4, 1, H); tag(258, 3, 3, bpsOff); tag(259, 3, 1, 1); tag(262, 3, 1, 2); tag(273, 4, 1, dataOff);
+  tag(277, 3, 1, 3); tag(278, 4, 1, H); tag(279, 4, 1, dataLen); tag(282, 5, 1, xresOff); tag(283, 5, 1, yresOff); tag(296, 3, 1, 2);
+  dv.setUint32(p, 0, true);
+  for (let i = 0; i < 3; i++) dv.setUint16(bpsOff + i * 2, 8, true);
+  dv.setUint32(xresOff, dpi, true); dv.setUint32(xresOff + 4, 1, true);
+  dv.setUint32(yresOff, dpi, true); dv.setUint32(yresOff + 4, 1, true);
+  for (let i = 0, j = dataOff; i < rgba.length; i += 4) { u8[j++] = rgba[i]; u8[j++] = rgba[i + 1]; u8[j++] = rgba[i + 2]; }
+  return new Blob([buf], { type: 'image/tiff' });
+}
+
+/** Export the annotated figure exactly as composed in step 5, at native resolution or upscaled. */
+let exporting = false;
+async function exportImage() {
+  if (!state.img) return toast('Load an image first.');
+  if (exporting) return;
+  flush();
+  const X = state.annot.exp, s = X.scale, W = state.img.width, H = state.img.height, capH = captionHeight();
+  const cw = Math.round(W * s), ch = Math.round((H + capH) * s);
+  if (cw > MAX_EXPORT_SIDE || ch > MAX_EXPORT_SIDE || cw * ch > MAX_EXPORT_PIXELS) return toast('That resolution is too large for the browser. Choose a lower one.', 'error');
+  exporting = true;
+  const ext = X.format === 'jpeg' ? 'jpg' : X.format === 'tiff' ? 'tif' : 'png';
+  toast(`Rendering ${cw} × ${ch} px ${ext.toUpperCase()}…`);
+  await new Promise(r => setTimeout(r, 40));                       // let the toast paint before the heavy work
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d');
+  try {
+    ctx.imageSmoothingEnabled = s === 1 || X.smooth; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(state.dispCanvas, 0, 0, W * s, H * s);
+    ctx.imageSmoothingEnabled = true;
+    drawComposition(ctx, s, 0, 0);
+    let blob;
+    if (X.format === 'tiff') blob = encodeTiff(ctx.getImageData(0, 0, cw, ch).data, cw, ch, X.dpi);
+    else {
+      blob = await new Promise(r => c.toBlob(r, X.format === 'jpeg' ? 'image/jpeg' : 'image/png', 1));
+      if (!blob) throw new Error('canvas could not be encoded');
+      blob = X.format === 'jpeg' ? await jpegWithDpi(blob, X.dpi) : await pngWithDpi(blob, X.dpi);
+    }
+    download(blob, `${state.fileName}_annotated.${ext}`);
+    toast(`Exported ${cw} × ${ch} px ${ext.toUpperCase()} at ${X.dpi} dpi (${(blob.size / 1048576).toFixed(1)} MB).`);
+  } catch (err) {
+    console.error(err);
+    toast('Export failed: the image is too large for this browser’s memory. Choose a lower resolution or PNG.', 'error');
+  } finally { c.width = c.height = 0; exporting = false; }
 }
 
 function exportCSV() {
   if (!state.img) return toast('Load an image first.');
   flush();
-  const head = ['Lane', 'Lane Type', 'Band', 'Migration Distance (px)', 'Rf', 'Estimated Size (bp)', 'Assigned Ladder Size (bp)',
+  const head = ['Lane', 'Lane Label', 'Lane Type', 'Band', 'Migration Distance (px)', 'Rf', 'Estimated Size (bp)', 'Assigned Ladder Size (bp)',
                 'Extrapolated', 'Peak Height', 'Integrated Peak Area', 'Relative Area (% of lane)', 'Manual'];
   const rows = [head];
   state.lanes.forEach((L, li) => {
     const total = L.bands.reduce((s, b) => s + b.area, 0) || 1;
     L.bands.forEach((b, bi) => rows.push([
-      li + 1, L.isLadder ? 'Ladder' : 'Sample', bi + 1, b.pos.toFixed(2), b.rf.toFixed(5),
+      li + 1, (L.numLab && L.numLab.text) || '', L.isLadder ? 'Ladder' : 'Sample', bi + 1, b.pos.toFixed(2), b.rf.toFixed(5),
       b.est > 0 ? Math.round(b.est) : '', L.isLadder && b.size > 0 ? b.size : '',
       b.est > 0 ? (b.extrap ? 'yes' : 'no') : '', b.height.toFixed(2), b.area.toFixed(2), (100 * b.area / total).toFixed(2), b.manual ? 'yes' : 'no',
     ]));
