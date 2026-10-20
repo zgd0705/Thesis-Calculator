@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4f7fb">
+<meta name="description" content="Mobile field sample capture with GPS, photo storage, and CSV export.">
+<title>Field Data Collector</title>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#102234;background:#f4f7fb}
+*{box-sizing:border-box}body{margin:0;min-height:100vh}.hidden{display:none!important}
+button{font:inherit}table{width:100%;border-collapse:collapse;font-size:.9rem}
+th,td{padding:10px;border-bottom:1px solid #c8d4df;text-align:left}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-head h2{margin:0}
+.field-nav{max-width:1120px;margin:auto;padding:16px;display:flex;align-items:center;gap:12px}
+.field-nav a{min-height:44px;display:inline-flex;align-items:center;color:#064e3b;font-weight:750;text-decoration:none}
+.field-nav a:hover{text-decoration:underline}
+.field-nav a:focus-visible{outline:3px solid #005fcc;outline-offset:3px}
+/* High-contrast, touch-friendly collector surface */
+.site-nav a{min-height:44px}
+.field-collector{max-width:1120px;margin:12px auto 48px;padding:20px 16px 36px;color:#102234;background:#f4f7fb;border-radius:22px}
+.field-collector h1{font-size:clamp(1.45rem,4vw,2rem);line-height:1.2;margin:0 0 6px}
+.field-collector h2{font-size:1.13rem;margin:0 0 16px}
+.collector-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:16px}
+.collector-summary .summary-tile,.collector-card{background:#fff;border:2px solid #b9c8d7;border-radius:15px;box-shadow:0 4px 14px rgba(15,37,58,.08)}
+.collector-summary .summary-tile{padding:14px}
+.collector-summary span{display:block;font-size:.77rem;font-weight:750;text-transform:uppercase;letter-spacing:.04em;color:#334b61}
+.collector-summary strong{display:block;font-size:1.12rem;margin-top:3px;overflow-wrap:anywhere}
+.collector-card{padding:20px;margin-bottom:16px}
+.collector-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.collector-field{display:flex;flex-direction:column;gap:6px;margin-bottom:16px}
+.collector-field label,.collector-label{font-size:.9rem;font-weight:750;color:#142b40}
+.collector-control{width:100%;min-height:48px;border:2px solid #6e8296;border-radius:10px;background:#fff;color:#102234;padding:10px 12px;font:inherit;font-size:1rem}
+.collector-control:focus-visible,.collector-button:focus-visible,.collector-table button:focus-visible{outline:3px solid #005fcc;outline-offset:2px}
+.collector-field textarea{min-height:120px;resize:vertical}
+.collector-help{margin:0 0 10px;font-size:.85rem;color:#405266}
+.collector-id{font-family:var(--mono);font-weight:750;overflow-wrap:anywhere}
+.collector-photo{display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap}
+.collector-photo img{display:block;width:min(100%,180px);height:140px;object-fit:cover;border-radius:12px;border:2px solid #6e8296}
+.collector-button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;min-width:48px;padding:10px 16px;border:2px solid #204b70;border-radius:11px;background:#fff;color:#123a5c;font:inherit;font-weight:750;cursor:pointer;text-align:center}
+.collector-button:hover{background:#e7f2ff}
+.collector-button.primary{background:#064e3b;color:#fff;border-color:#064e3b}
+.collector-button.primary:hover{background:#073f32}
+.collector-button.danger{color:#9f1d22;border-color:#9f1d22}
+.collector-button.danger:hover{background:#fff0f0}
+.collector-button:disabled{opacity:.55;cursor:not-allowed}
+.collector-actions{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
+.gps-readout{padding:14px;background:#f3f7fa;border:2px solid #b9c8d7;border-radius:12px;margin:0 0 16px}
+.gps-badge{display:inline-block;border-radius:999px;padding:6px 12px;font-size:.9rem;font-weight:800;background:#dae2ea;color:#193951}
+.gps-badge.good{background:#d5f6e0;color:#07572b}
+.gps-badge.fair{background:#fff0b3;color:#664500}
+.gps-badge.poor{background:#ffe0df;color:#9f1d22}
+.gps-coordinates{display:flex;gap:12px 24px;flex-wrap:wrap;margin-top:10px;font-family:var(--mono);font-size:.94rem;font-weight:650}
+.collector-message{min-height:1.5em;margin:10px 0 0;font-weight:650}
+.collector-message.error{color:#9f1d22}
+.collector-message.success{color:#07572b}
+.collector-table-wrap{max-height:430px;overflow:auto;border:2px solid #b9c8d7;border-radius:12px;-webkit-overflow-scrolling:touch}
+.collector-table{min-width:980px;background:#fff}
+.collector-table th{position:sticky;top:0;z-index:1;background:#eaf1f7;color:#142b40;border-color:#b9c8d7}
+.collector-table td{color:#102234;border-color:#c8d4df;vertical-align:top}
+.collector-table tbody tr:nth-child(even){background:#f3f7fa}
+.collector-table img{width:60px;height:48px;object-fit:cover;border-radius:6px}
+.collector-table .collector-button{min-height:44px;padding:6px 10px;font-size:.84rem;margin:2px}
+.collector-empty{text-align:center;padding:20px;color:#405266}
+.collector-dialog{border:2px solid #6e8296;border-radius:16px;max-width:min(92vw,650px);max-height:85vh;overflow:auto;padding:20px;color:#102234;background:#fff}
+.collector-dialog::backdrop{background:rgba(3,17,30,.75)}
+.collector-dialog dl{display:grid;grid-template-columns:150px 1fr;gap:8px 12px}
+.collector-dialog dt{font-weight:750}
+.collector-dialog dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.collector-dialog img{display:block;max-width:100%;max-height:320px;object-fit:contain;margin:14px 0}
+@media(max-width:650px){.field-collector{margin:0 auto 30px;padding:16px 12px;border-radius:0}.collector-summary{grid-template-columns:1fr 1fr}.collector-summary .summary-tile:last-child{grid-column:1/-1}.collector-card{padding:16px}.collector-grid{grid-template-columns:1fr;gap:0}.collector-actions .collector-button{flex:1 1 100%}.collector-dialog dl{grid-template-columns:1fr;gap:2px}.collector-dialog dd{margin-bottom:8px}}
+
+</style>
+</head>
+<body>
+<nav class="field-nav" aria-label="Primary"><a href="./index.html">← Research &amp; Diagnostic Tools</a></nav>
+<main id="fieldCollector" class="field-collector" aria-labelledby="collectorTitle">
+  <div class="collector-head">
+    <h1 id="collectorTitle">Field Sampling / Raw Data Collector</h1>
+    <p class="collector-help">Capture a sample and keep its raw observations on this device. Export a CSV before clearing browser data or changing phones.</p>
+  </div>
+  <div class="collector-summary" aria-live="polite">
+    <div class="summary-tile"><span>Samples logged today</span><strong id="collectorToday">0</strong></div>
+    <div class="summary-tile"><span>Active location</span><strong id="collectorActiveLocation">SL-ES</strong></div>
+    <div class="summary-tile"><span>Storage status</span><strong id="collectorStorage">Opening device storage…</strong></div>
+  </div>
+  <section class="collector-card" aria-labelledby="collectorFormTitle">
+    <h2 id="collectorFormTitle">Log a sample</h2>
+    <form id="collectorForm">
+      <div class="collector-grid">
+        <div class="collector-field">
+          <label for="collectorLocation">Location code</label>
+          <select id="collectorLocation" class="collector-control" required>
+            <option value="SL-ES">SL-ES</option><option value="K-ES">K-ES</option><option value="T-ES">T-ES</option>
+          </select>
+        </div>
+        <div class="collector-field">
+          <span class="collector-label">Next sample ID</span>
+          <div class="collector-control collector-id" id="collectorNextId" aria-live="polite">Loading…</div>
+        </div>
+        <div class="collector-field">
+          <label for="collectorHost">Suspected host</label>
+          <select id="collectorHost" class="collector-control" required>
+            <option value="">Select a host</option>
+            <option>Human</option><option>Canine / Dog</option><option>Feline / Cat</option>
+            <option>Porcine / Pig</option><option>Bovine</option><option>Environmental / Soil</option>
+            <option>Other / Unknown</option>
+          </select>
+        </div>
+        <div class="collector-field hidden" id="collectorOtherWrap">
+          <label for="collectorOther">Specify other host</label>
+          <input id="collectorOther" class="collector-control" type="text" maxlength="80" autocomplete="off">
+        </div>
+      </div>
+      <div class="collector-field">
+        <label for="collectorPhoto">Sample photo</label>
+        <input id="collectorPhoto" class="collector-control" type="file" accept="image/*" capture="environment">
+        <p class="collector-help">Use the rear camera or choose an existing image. The original photo stays in device storage.</p>
+        <div id="collectorPhotoPreview" class="collector-photo hidden">
+          <img id="collectorPreviewImage" alt="Captured sample preview">
+          <div class="collector-actions">
+            <button type="button" id="collectorRetake" class="collector-button">Retake photo</button>
+            <button type="button" id="collectorRemovePhoto" class="collector-button">Remove photo</button>
+          </div>
+        </div>
+      </div>
+      <div class="gps-readout" aria-live="polite">
+        <div class="collector-actions">
+          <span id="collectorGpsBadge" class="gps-badge">GPS not captured</span>
+          <button type="button" id="collectorRefreshGps" class="collector-button">Refresh GPS</button>
+        </div>
+        <div class="gps-coordinates"><span id="collectorLatitude">Latitude: —</span><span id="collectorLongitude">Longitude: —</span><span id="collectorAccuracy">GPS Accuracy: —</span></div>
+        <p class="collector-help">GPS needs location permission and usually HTTPS. If it fails, the sample can still be saved with blank coordinates.</p>
+      </div>
+      <div class="collector-field">
+        <label for="collectorNotes">Raw notes</label>
+        <textarea id="collectorNotes" class="collector-control" placeholder="Soil consistency, moisture, shade, nearby households, stool grade…"></textarea>
+      </div>
+      <button type="submit" id="collectorSave" class="collector-button primary" disabled>Save sample to device</button>
+      <p id="collectorMessage" class="collector-message" role="status" aria-live="polite"></p>
+    </form>
+  </section>
+  <section class="collector-card" aria-labelledby="collectorListTitle">
+    <div class="card-head">
+      <h2 id="collectorListTitle">Logged Samples</h2>
+      <div class="collector-actions">
+        <button type="button" id="collectorExport" class="collector-button primary" disabled>Export to CSV</button>
+        <button type="button" id="collectorClear" class="collector-button danger" disabled>Clear All / Reset Session</button>
+      </div>
+    </div>
+    <p class="collector-help">CSV includes all logged locations. Swipe horizontally on a phone to inspect every column.</p>
+    <div class="collector-table-wrap" role="region" aria-label="Logged samples table" tabindex="0">
+      <table class="collector-table">
+        <thead><tr><th>Sample ID</th><th>Location</th><th>Host</th><th>Coordinates (Lat / Long / Accuracy)</th><th>Timestamp</th><th>Image</th><th>Actions</th></tr></thead>
+        <tbody id="collectorRows"><tr><td colspan="7" class="collector-empty">Opening device storage…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+<dialog id="collectorDetails" class="collector-dialog" aria-labelledby="collectorDetailsTitle">
+  <h2 id="collectorDetailsTitle">Sample details</h2>
+  <div id="collectorDetailsBody"></div>
+  <button type="button" id="collectorCloseDetails" class="collector-button">Close details</button>
+</dialog>
+
+<script>
+/* Field collector is self-contained and has no network or library dependency. */
+(function () {
+  'use strict';
+  const el = id => document.getElementById(id);
+  const DB_NAME = 'field-collector.v1';
+  const LOCATION_CODES = ['SL-ES', 'K-ES', 'T-ES'];
+  const photoInput = el('collectorPhoto');
+  const dialog = el('collectorDetails');
+  let db = null, records = [], nextSeq = 1, photo = null, photoUrl = null;
+  let gps = null, gpsRequest = 0, gpsPending = false, saving = false, rowUrls = [], detailUrl = null;
+
+  function localDay(date) {
+    return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+  }
+  function stamp(date) { return localDay(date).replace(/-/g, ''); }
+  function sampleId(location, date, sequence) {
+    return 'SMP-' + location + '-' + stamp(date) + '-' + String(sequence).padStart(3, '0');
+  }
+  function message(text, kind) {
+    const box = el('collectorMessage');
+    box.textContent = text;
+    box.className = 'collector-message' + (kind ? ' ' + kind : '');
+  }
+  function setStorage(text) { el('collectorStorage').textContent = text; }
+  function activeLocation() { return el('collectorLocation').value; }
+  function updateSummary() {
+    const today = localDay(new Date());
+    el('collectorToday').textContent = records.filter(r => localDay(new Date(r.timestampUTC)) === today).length;
+    el('collectorActiveLocation').textContent = activeLocation();
+    el('collectorNextId').textContent = sampleId(activeLocation(), new Date(), nextSeq);
+  }
+  function openDB() {
+    return new Promise((resolve, reject) => {
+      if (!window.indexedDB) { reject(new Error('IndexedDB is unavailable in this browser.')); return; }
+      const request = indexedDB.open(DB_NAME, 1);
+      request.onupgradeneeded = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains('samples')) database.createObjectStore('samples', { keyPath: 'id' });
+        if (!database.objectStoreNames.contains('meta')) database.createObjectStore('meta', { keyPath: 'key' });
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error || new Error('Could not open device storage.'));
+      request.onblocked = () => reject(new Error('Device storage is blocked by another tab. Close it and reload.'));
+    });
+  }
+  function loadMeta() {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readonly');
+      let sequence, locationCode;
+      tx.objectStore('meta').get('nextSeq').onsuccess = e => { sequence = e.target.result?.value; };
+      tx.objectStore('meta').get('location').onsuccess = e => { locationCode = e.target.result?.value; };
+      tx.oncomplete = () => resolve({ sequence, locationCode });
+      tx.onerror = () => reject(tx.error || new Error('Could not read session settings.'));
+    });
+  }
+  function saveLocation(code) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('meta', 'readwrite');
+      tx.objectStore('meta').put({ key: 'location', value: code });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Could not save location.'));
+    });
+  }
+  function loadRecords() {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('samples', 'readonly');
+      const request = tx.objectStore('samples').getAll();
+      tx.oncomplete = () => resolve(request.result || []);
+      tx.onerror = () => reject(tx.error || new Error('Could not read samples.'));
+    });
+  }
+  async function refreshRecords() {
+    records = (await loadRecords()).sort((a, b) => b.timestampUTC.localeCompare(a.timestampUTC));
+    renderRecords();
+    updateSummary();
+  }
+  function cell(tr, value) {
+    const td = document.createElement('td');
+    td.textContent = value == null ? '' : String(value);
+    tr.appendChild(td);
+    return td;
+  }
+  function button(label, action, id, danger) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'collector-button' + (danger ? ' danger' : '');
+    b.textContent = label;
+    b.dataset.action = action;
+    b.dataset.id = id;
+    return b;
+  }
+  function renderRecords() {
+    rowUrls.forEach(URL.revokeObjectURL);
+    rowUrls = [];
+    const tbody = el('collectorRows');
+    tbody.replaceChildren();
+    if (!records.length) {
+      const tr = document.createElement('tr');
+      const td = cell(tr, 'No samples logged yet.');
+      td.colSpan = 7; td.className = 'collector-empty';
+      tbody.appendChild(tr);
+    }
+    records.forEach(r => {
+      const tr = document.createElement('tr');
+      cell(tr, r.id);
+      cell(tr, r.location);
+      cell(tr, r.host);
+      const coord = r.latitude == null ? 'GPS unavailable' :
+        Number(r.latitude).toFixed(6) + ' / ' + Number(r.longitude).toFixed(6) + ' / ±' + Number(r.accuracy).toFixed(1) + ' m';
+      cell(tr, coord);
+      cell(tr, r.localDateTime);
+      const imageCell = cell(tr, '');
+      if (r.photo instanceof Blob) {
+        const url = URL.createObjectURL(r.photo);
+        rowUrls.push(url);
+        const img = document.createElement('img');
+        img.src = url; img.alt = 'Photo for ' + r.id;
+        imageCell.appendChild(img);
+      } else imageCell.textContent = 'No photo';
+      const actions = cell(tr, '');
+      actions.append(button('View Details', 'view', r.id), button('Delete Entry', 'delete', r.id, true));
+      tbody.appendChild(tr);
+    });
+    el('collectorExport').disabled = !records.length;
+    el('collectorClear').disabled = !records.length;
+  }
+  function updatePhoto() {
+    if (photoUrl) URL.revokeObjectURL(photoUrl);
+    photoUrl = photo ? URL.createObjectURL(photo) : null;
+    el('collectorPhotoPreview').classList.toggle('hidden', !photo);
+    if (photoUrl) el('collectorPreviewImage').src = photoUrl;
+    else el('collectorPreviewImage').removeAttribute('src');
+  }
+  function updateGps(status) {
+    const badge = el('collectorGpsBadge');
+    badge.className = 'gps-badge';
+    if (status) {
+      badge.textContent = status;
+      badge.classList.add(status === 'Getting GPS…' ? 'fair' : 'poor');
+    } else if (!gps) {
+      badge.textContent = 'GPS not captured';
+    } else {
+      const accuracy = gps.accuracy;
+      badge.textContent = 'GPS Accuracy: ± ' + accuracy.toFixed(1) + ' m';
+      badge.classList.add(accuracy < 10 ? 'good' : accuracy <= 30 ? 'fair' : 'poor');
+    }
+    el('collectorLatitude').textContent = 'Latitude: ' + (gps ? gps.latitude.toFixed(6) : '—');
+    el('collectorLongitude').textContent = 'Longitude: ' + (gps ? gps.longitude.toFixed(6) : '—');
+    el('collectorAccuracy').textContent = 'GPS Accuracy: ' + (gps ? '± ' + gps.accuracy.toFixed(1) + ' m' : '—');
+  }
+  function refreshGps() {
+    const token = ++gpsRequest;
+    gps = null;
+    gpsPending = true;
+    el('collectorSave').disabled = true;
+    updateGps('Getting GPS…');
+    if (!navigator.geolocation) {
+      gpsPending = false;
+      el('collectorSave').disabled = !db || saving;
+      updateGps('GPS unavailable on this device');
+      return;
+    }
+    try { navigator.geolocation.getCurrentPosition(position => {
+      if (token !== gpsRequest) return;
+      gpsPending = false;
+      el('collectorSave').disabled = !db || saving;
+      const c = position.coords;
+      if (![c.latitude, c.longitude, c.accuracy].every(Number.isFinite)) {
+        updateGps('Invalid GPS result'); return;
+      }
+      gps = { latitude: c.latitude, longitude: c.longitude, accuracy: c.accuracy };
+      updateGps();
+    }, error => {
+      if (token !== gpsRequest) return;
+      gpsPending = false;
+      el('collectorSave').disabled = !db || saving;
+      const reason = error.code === 1 ? 'Location permission denied' :
+        error.code === 3 ? 'GPS timed out' : 'GPS position unavailable';
+      updateGps(reason);
+    }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }); }
+    catch (error) {
+      gpsPending = false;
+      el('collectorSave').disabled = !db || saving;
+      updateGps('GPS unavailable on this page');
+    }
+  }
+  function addRecord(data) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['samples', 'meta'], 'readwrite');
+      const meta = tx.objectStore('meta');
+      let record, sequence;
+      meta.get('nextSeq').onsuccess = e => {
+        sequence = Number.isSafeInteger(e.target.result?.value) ? e.target.result.value : 1;
+        record = Object.assign({}, data, { id: sampleId(data.location, new Date(data.timestampUTC), sequence) });
+        tx.objectStore('samples').add(record);
+        meta.put({ key: 'nextSeq', value: sequence + 1 });
+      };
+      tx.oncomplete = () => resolve({ record, nextSeq: sequence + 1 });
+      tx.onerror = () => reject(tx.error || new Error('Could not save this sample.'));
+      tx.onabort = () => reject(tx.error || new Error('Sample save was cancelled.'));
+    });
+  }
+  async function saveSample(event) {
+    event.preventDefault();
+    if (!db || saving || gpsPending) return;
+    const host = el('collectorHost').value;
+    const other = el('collectorOther').value.trim();
+    if (!host) { el('collectorHost').focus(); return; }
+    if (host === 'Other / Unknown' && !other) {
+      el('collectorOther').focus();
+      message('Specify the suspected host or enter Unknown.', 'error');
+      return;
+    }
+    saving = true;
+    el('collectorSave').disabled = true;
+    message('Saving sample…');
+    const now = new Date();
+    const data = {
+      timestampUTC: now.toISOString(),
+      localDateTime: now.toLocaleString(),
+      location: activeLocation(),
+      host: host === 'Other / Unknown' ? 'Other / Unknown: ' + other : host,
+      latitude: gps ? gps.latitude : null,
+      longitude: gps ? gps.longitude : null,
+      accuracy: gps ? gps.accuracy : null,
+      notes: el('collectorNotes').value,
+      photo: photo
+    };
+    try {
+      const saved = await addRecord(data);
+      nextSeq = saved.nextSeq;
+      await refreshRecords();
+      el('collectorHost').value = '';
+      el('collectorOther').value = '';
+      el('collectorOtherWrap').classList.add('hidden');
+      el('collectorOther').required = false;
+      el('collectorNotes').value = '';
+      photoInput.value = '';
+      photo = null; updatePhoto();
+      gpsRequest++; gps = null; updateGps();
+      setStorage('Saved on this device');
+      message('Saved ' + saved.record.id + ' on this device.', 'success');
+    } catch (error) {
+      setStorage('Save failed — export data');
+      message(error?.name === 'QuotaExceededError' ? 'Device storage is full. Export your CSV and free space before retrying.' :
+        (error?.message || 'Could not save sample.'), 'error');
+    } finally {
+      saving = false;
+      el('collectorSave').disabled = !db || gpsPending;
+    }
+  }
+  function detailPair(dl, label, value) {
+    const dt = document.createElement('dt'), dd = document.createElement('dd');
+    dt.textContent = label; dd.textContent = value == null ? '—' : String(value);
+    dl.append(dt, dd);
+  }
+  function viewDetails(record) {
+    if (detailUrl) URL.revokeObjectURL(detailUrl);
+    detailUrl = null;
+    const body = el('collectorDetailsBody');
+    body.replaceChildren();
+    const dl = document.createElement('dl');
+    detailPair(dl, 'Sample ID', record.id);
+    detailPair(dl, 'UTC timestamp', record.timestampUTC);
+    detailPair(dl, 'Local date and time', record.localDateTime);
+    detailPair(dl, 'Location', record.location);
+    detailPair(dl, 'Suspected host', record.host);
+    detailPair(dl, 'Latitude', record.latitude == null ? '—' : Number(record.latitude).toFixed(6));
+    detailPair(dl, 'Longitude', record.longitude == null ? '—' : Number(record.longitude).toFixed(6));
+    detailPair(dl, 'GPS accuracy', record.accuracy == null ? '—' : '± ' + Number(record.accuracy).toFixed(1) + ' m');
+    detailPair(dl, 'Raw notes', record.notes || '—');
+    body.appendChild(dl);
+    if (record.photo instanceof Blob) {
+      detailUrl = URL.createObjectURL(record.photo);
+      const img = document.createElement('img');
+      img.src = detailUrl; img.alt = 'Photo for ' + record.id;
+      body.appendChild(img);
+    }
+    dialog.showModal();
+  }
+  function deleteRecord(id) {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('samples', 'readwrite');
+      tx.objectStore('samples').delete(id);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Could not delete sample.'));
+    });
+  }
+  function clearRecords() {
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(['samples', 'meta'], 'readwrite');
+      tx.objectStore('samples').clear();
+      tx.objectStore('meta').put({ key: 'nextSeq', value: 1 });
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error || new Error('Could not clear session.'));
+    });
+  }
+  function csvCell(value) {
+    const text = value == null ? '' : String(value);
+    return /[",\r\n]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+  }
+  function exportCSV() {
+    if (!records.length) return;
+    const headers = ['Sample_ID', 'Timestamp_UTC', 'Local_Date_Time', 'Location_Code', 'Suspected_Host',
+      'Latitude', 'Longitude', 'Accuracy_Meters', 'Notes', 'Image_Captured'];
+    const rows = records.map(r => [
+      r.id, r.timestampUTC, r.localDateTime, r.location, r.host,
+      r.latitude == null ? '' : Number(r.latitude).toFixed(6),
+      r.longitude == null ? '' : Number(r.longitude).toFixed(6),
+      r.accuracy == null ? '' : Number(r.accuracy).toFixed(1),
+      r.notes, r.photo instanceof Blob ? 'Yes' : 'No'
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(csvCell).join(',')).join('\r\n') + '\r\n';
+    const locations = [...new Set(records.map(r => r.location))];
+    const code = locations.length === 1 ? locations[0] : 'MULTI';
+    const blob = new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'sampling_data_' + code + '_' + localDay(new Date()) + '.csv';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(url); link.remove(); }, 1000);
+    message('CSV exported. Photos remain on this device and are marked Yes/No in the CSV.', 'success');
+  }
+  async function init() {
+    try {
+      db = await openDB();
+      const meta = await loadMeta();
+      nextSeq = Number.isSafeInteger(meta.sequence) && meta.sequence > 0 ? meta.sequence : 1;
+      if (LOCATION_CODES.includes(meta.locationCode)) el('collectorLocation').value = meta.locationCode;
+      await refreshRecords();
+      setStorage('Saved on this device');
+      el('collectorSave').disabled = false;
+    } catch (error) {
+      setStorage('Unavailable');
+      el('collectorRows').innerHTML = '<tr><td colspan="7" class="collector-empty">Device storage is unavailable.</td></tr>';
+      message(error?.message || 'Could not open device storage.', 'error');
+    }
+  }
+
+  el('collectorLocation').addEventListener('change', async () => {
+    updateSummary();
+    if (!db) return;
+    try { await saveLocation(activeLocation()); }
+    catch (error) { setStorage('Location save failed'); message(error.message, 'error'); }
+  });
+  el('collectorHost').addEventListener('change', () => {
+    const other = el('collectorHost').value === 'Other / Unknown';
+    el('collectorOtherWrap').classList.toggle('hidden', !other);
+    el('collectorOther').required = other;
+    if (other) el('collectorOther').focus();
+  });
+  photoInput.addEventListener('change', () => {
+    const file = photoInput.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      photoInput.value = '';
+      message('Choose an image file.', 'error');
+      return;
+    }
+    photo = file;
+    updatePhoto();
+    refreshGps();
+  });
+  el('collectorRetake').addEventListener('click', () => { photoInput.value = ''; photoInput.click(); });
+  el('collectorRemovePhoto').addEventListener('click', () => { photo = null; photoInput.value = ''; updatePhoto(); });
+  el('collectorRefreshGps').addEventListener('click', refreshGps);
+  el('collectorForm').addEventListener('submit', saveSample);
+  el('collectorRows').addEventListener('click', async event => {
+    const b = event.target.closest('button[data-action]');
+    if (!b) return;
+    const record = records.find(r => r.id === b.dataset.id);
+    if (!record) return;
+    if (b.dataset.action === 'view') { viewDetails(record); return; }
+    if (!confirm('Delete ' + record.id + '? This cannot be undone.')) return;
+    try { await deleteRecord(record.id); await refreshRecords(); message('Deleted ' + record.id + '.', 'success'); }
+    catch (error) { message(error.message || 'Could not delete sample.', 'error'); }
+  });
+  el('collectorCloseDetails').addEventListener('click', () => dialog.close());
+  dialog.addEventListener('close', () => { if (detailUrl) URL.revokeObjectURL(detailUrl); detailUrl = null; });
+  el('collectorExport').addEventListener('click', exportCSV);
+  el('collectorClear').addEventListener('click', async () => {
+    if (!records.length) return;
+    if (!confirm('Clear all logged samples and reset the sample counter? Export the CSV first if needed.')) return;
+    if (!confirm('Final confirmation: permanently delete every field sample and photo on this device?')) return;
+    try {
+      await clearRecords();
+      nextSeq = 1;
+      await refreshRecords();
+      message('All samples cleared. Session counter reset to 001.', 'success');
+    } catch (error) { message(error.message || 'Could not clear session.', 'error'); }
+  });
+  setInterval(updateSummary, 60000);
+  init();
+})();
+</script>
+</body>
+</html>
