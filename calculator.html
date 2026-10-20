@@ -1,0 +1,1481 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Master Mix Calculator</title>
+<meta name="description" content="Master mix calculator for PCR, qPCR and molecular biology reaction setup, with sheet upload and a reagent checklist.">
+<meta name="theme-color" content="#0a0e13">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧪</text></svg>">
+<style>
+:root{
+  --bg:#0a0e13; --bg-grad:#101a26; --surface:#111821; --surface-2:#17202c; --surface-3:#1f2a38;
+  --border:#253244; --border-strong:#36485f;
+  --text:#eef3f9; --muted:#9db0c5; --faint:#6f8299;
+  --accent:#3ee0c0; --accent-strong:#25c9a9; --accent-ink:#03221b; --accent-soft:rgba(62,224,192,.13);
+  --blue:#6b9bff;
+  --danger:#ff7b7b; --danger-soft:rgba(255,123,123,.12);
+  --warn:#ffc857; --warn-soft:rgba(255,200,87,.12);
+  --ok:#5fe390; --ok-ink:#052611; --ok-soft:rgba(95,227,144,.12);
+  --radius:18px; --radius-sm:11px;
+  --shadow:0 12px 32px -12px rgba(0,0,0,.55);
+  --mono:ui-monospace,"SF Mono","JetBrains Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  color-scheme:dark;
+}
+[data-theme="light"]{
+  --bg:#f2f5f9; --bg-grad:#e6eef7; --surface:#ffffff; --surface-2:#f6f8fb; --surface-3:#eaeff5;
+  --border:#d9e1ea; --border-strong:#bccad9;
+  --text:#0d1726; --muted:#4b5c71; --faint:#7a8aa0;
+  --accent:#0d9488; --accent-strong:#0f766e; --accent-ink:#ffffff; --accent-soft:rgba(13,148,136,.10);
+  --blue:#2f6fe4;
+  --danger:#d62828; --danger-soft:rgba(214,40,40,.08);
+  --warn:#a85d00; --warn-soft:rgba(234,150,0,.12);
+  --ok:#16a34a; --ok-ink:#ffffff; --ok-soft:rgba(22,163,74,.10);
+  --shadow:0 10px 28px -14px rgba(15,30,60,.25);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:var(--sans);color:var(--text);line-height:1.5;min-height:100vh;
+  background:radial-gradient(1100px 520px at 50% -180px,var(--bg-grad),transparent 70%),var(--bg);
+  -webkit-font-smoothing:antialiased;
+}
+.hidden{display:none!important}
+button{font:inherit}
+.site-nav{border-bottom:1px solid var(--border);background:var(--bg)}
+.site-nav-inner{max-width:1120px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
+.site-nav a{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.84rem;font-weight:650;white-space:nowrap;transition:color .15s,background .15s}
+.site-nav a:hover{color:var(--text);background:var(--surface-2)}
+.site-nav a[aria-current="page"]{color:var(--accent);background:var(--accent-soft)}
+.site-nav a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.app-header{max-width:1120px;margin:0 auto;padding:22px 16px 6px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:center;gap:13px;min-width:0}
+.logo{flex:none;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;color:#04161a;
+  background:linear-gradient(135deg,var(--accent),var(--blue));box-shadow:0 8px 24px -8px var(--accent)}
+.brand h1{font-size:1.22rem;margin:0;letter-spacing:-.015em}
+.brand p{margin:0;color:var(--muted);font-size:.84rem}
+.container{max-width:1120px;margin:0 auto;padding:10px 16px 56px;display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;box-shadow:var(--shadow)}
+@media (max-width:520px){.card{padding:16px}}
+.card h2{font-size:1rem;margin:0 0 16px;display:flex;align-items:center;gap:10px;letter-spacing:-.005em}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.card-head h2{margin:0}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
+.step{flex:none;width:25px;height:25px;border-radius:999px;background:var(--accent-soft);color:var(--accent);display:inline-grid;place-items:center;font-size:.78rem;font-weight:800}
+.count{font-size:.75rem;font-weight:700;color:var(--muted);background:var(--surface-3);padding:2px 9px;border-radius:999px}
+.grid-2{display:grid;grid-template-columns:1fr;gap:16px}
+@media (min-width:900px){.grid-2{grid-template-columns:1fr 1fr}}
+.label{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:700}
+.hint{font-size:.8rem;color:var(--muted);margin:6px 0 0}
+.muted{color:var(--muted)}
+
+/* Display */
+.display{position:relative;overflow:hidden;background:linear-gradient(180deg,var(--surface-2),var(--surface));border-color:var(--border-strong)}
+.display::before{content:"";position:absolute;left:0;right:0;top:0;height:3px;background:linear-gradient(90deg,var(--accent),var(--blue))}
+.display-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.badge{font-size:.74rem;font-weight:700;padding:4px 10px;border-radius:999px}
+.badge.warn{background:var(--warn-soft);color:var(--warn)}
+.disp-expr{font-family:var(--mono);font-size:.88rem;color:var(--muted);min-height:1.5em;word-break:break-word}
+.disp-expr b{color:var(--text)}
+.disp-main{display:grid;grid-template-columns:1fr;gap:14px;margin-top:14px}
+@media (min-width:640px){.disp-main{grid-template-columns:1.35fr 1fr}}
+.disp-block{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px}
+.disp-big{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(2rem,7vw,3.1rem);font-weight:700;letter-spacing:-.03em;line-height:1.1;color:var(--accent);word-break:break-all}
+.disp-mid{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:clamp(1.5rem,4.5vw,2rem);font-weight:700;letter-spacing:-.02em;line-height:1.15}
+.disp-big small,.disp-mid small{font-size:.45em;color:var(--muted);font-weight:600;letter-spacing:0}
+.disp-sub{font-size:.8rem;color:var(--muted);margin-top:4px}
+.history{margin-top:16px;border-top:1px dashed var(--border);padding-top:12px}
+.history-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.link-btn{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.8rem;padding:4px 6px;border-radius:8px;transition:color .15s,background .15s}
+.link-btn:hover{color:var(--danger);background:var(--danger-soft)}
+#histList{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px;max-height:150px;overflow-y:auto}
+.hist-item{width:100%;display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;text-align:left;background:var(--surface);border:1px solid var(--border);color:var(--text);border-radius:10px;padding:8px 12px;cursor:pointer;transition:border-color .15s,background .15s,transform .12s}
+.hist-item:hover{border-color:var(--accent);background:var(--accent-soft)}
+.h-time{font-size:.74rem;color:var(--faint);font-family:var(--mono)}
+.h-expr{font-size:.82rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.h-res{font-family:var(--mono);font-weight:700;font-size:.86rem}
+.hist-empty{font-size:.82rem;color:var(--faint)}
+
+/* Forms */
+.field{display:flex;flex-direction:column;gap:6px;margin-bottom:15px}
+.field > label,.field-label{font-size:.82rem;color:var(--muted);font-weight:650}
+.row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:420px){.row-2{grid-template-columns:1fr}}
+.in{width:100%;background:var(--surface-2);border:1px solid var(--border);color:var(--text);border-radius:var(--radius-sm);padding:10px 12px;font:inherit;font-size:.95rem;transition:border-color .15s,box-shadow .15s,background .15s}
+.in::placeholder{color:var(--faint)}
+.in:hover:not(:disabled){border-color:var(--border-strong)}
+.in:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+.in:disabled{opacity:.45;cursor:not-allowed}
+.num,.in.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+select.in{appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+  background-position:calc(100% - 17px) 52%,calc(100% - 12px) 52%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+input[type=number]::-webkit-outer-spin-button,input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+input[type=number]{-moz-appearance:textfield}
+.stepper{display:flex}
+.stepper .in{border-radius:0;text-align:center;font-family:var(--mono);font-size:1.15rem;font-weight:700;border-left:none;border-right:none;min-width:0}
+.stepper button{flex:none;width:48px;border:1px solid var(--border);background:var(--surface-3);color:var(--text);font-size:1.25rem;font-weight:700;cursor:pointer;transition:background .15s,color .15s}
+.stepper button:first-child{border-radius:var(--radius-sm) 0 0 var(--radius-sm)}
+.stepper button:last-child{border-radius:0 var(--radius-sm) var(--radius-sm) 0}
+.stepper button:hover{background:var(--accent-soft);color:var(--accent)}
+.input-suffix{position:relative}
+.input-suffix .in{padding-right:44px}
+.input-suffix span{position:absolute;right:13px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:.85rem;pointer-events:none}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chip{border:1px solid var(--border);background:var(--surface-2);color:var(--muted);padding:5px 12px;border-radius:999px;font-size:.8rem;font-weight:650;cursor:pointer;transition:all .15s}
+.chip:hover{border-color:var(--accent);color:var(--text)}
+.chip.active{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-2);margin-bottom:15px}
+.toggle-row .t-text{font-size:.84rem;color:var(--muted)}
+.toggle-row .t-text b{color:var(--text);font-weight:650;display:block}
+
+/* Buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);padding:9px 16px;border-radius:999px;font-weight:650;font-size:.87rem;cursor:pointer;white-space:nowrap;transition:transform .12s,background .15s,border-color .15s,box-shadow .15s,color .15s}
+.btn:hover:not(:disabled){background:var(--surface-3);border-color:var(--border-strong);transform:translateY(-1px)}
+.btn:active:not(:disabled){transform:translateY(0)}
+.btn:focus-visible,.icon-btn:focus-visible,.chip:focus-visible,.hist-item:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-soft);border-color:var(--accent)}
+.btn:disabled{opacity:.42;cursor:not-allowed}
+.btn.primary{background:var(--accent);border-color:transparent;color:var(--accent-ink);box-shadow:0 10px 24px -10px var(--accent)}
+.btn.primary:hover:not(:disabled){background:var(--accent-strong);box-shadow:0 12px 28px -10px var(--accent)}
+.btn.lg{width:100%;padding:14px 18px;font-size:1rem;border-radius:14px}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--danger)}
+.btn.danger:hover:not(:disabled){background:var(--danger-soft);border-color:var(--danger)}
+.btn.sm{padding:6px 12px;font-size:.8rem}
+.icon-btn{display:inline-grid;place-items:center;width:40px;height:40px;border-radius:999px;border:1px solid var(--border);background:var(--surface-2);color:var(--text);cursor:pointer;transition:all .15s}
+.icon-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.icon-btn.sm{width:30px;height:30px;font-size:.85rem}
+.icon-btn.danger:hover:not(:disabled){border-color:var(--danger);color:var(--danger);background:var(--danger-soft)}
+.icon-btn:disabled{opacity:.3;cursor:not-allowed}
+kbd{font-family:var(--mono);font-size:.72rem;border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:6px;padding:1px 5px;color:var(--muted)}
+
+/* Alerts */
+.alert{border-radius:12px;padding:11px 14px;font-size:.85rem;margin-top:12px}
+.alert ul{margin:6px 0 0;padding-left:18px}
+.alert.error{background:var(--danger-soft);color:var(--danger);border:1px solid color-mix(in srgb,var(--danger) 35%,transparent)}
+.alert.warn{background:var(--warn-soft);color:var(--warn);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent)}
+.alert.info{background:var(--accent-soft);color:var(--text);border:1px solid color-mix(in srgb,var(--accent) 30%,transparent)}
+.alert b{font-weight:700}
+
+/* Upload */
+.dropzone{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:26px 16px;border:2px dashed var(--border-strong);border-radius:16px;background:var(--surface-2);cursor:pointer;transition:border-color .15s,background .15s,transform .15s}
+.dropzone:hover,.dropzone.drag{border-color:var(--accent);background:var(--accent-soft)}
+.dropzone.drag{transform:scale(1.01)}
+.dz-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);margin-bottom:4px}
+.dz-title{font-weight:700}
+.dz-sub{font-size:.82rem;color:var(--muted)}
+.dz-sub .lnk{color:var(--accent);font-weight:650;text-decoration:underline;text-underline-offset:3px}
+.upload-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+details.paste{margin-top:12px;border:1px solid var(--border);border-radius:12px;background:var(--surface-2)}
+details.paste summary{cursor:pointer;padding:10px 14px;font-size:.85rem;font-weight:650;color:var(--muted);list-style:none}
+details.paste summary::-webkit-details-marker{display:none}
+details.paste summary::before{content:"▸ ";display:inline-block;transition:transform .15s}
+details.paste[open] summary::before{transform:rotate(90deg)}
+details.paste .paste-body{padding:0 14px 14px}
+details.paste textarea{min-height:110px;resize:vertical;font-family:var(--mono);font-size:.8rem;background:var(--surface)}
+.sheet-info{margin-top:12px;font-size:.84rem}
+.sheet-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.sheet-meta .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 3px var(--ok-soft)}
+.mapping{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.mapping span{font-size:.74rem;padding:3px 9px;border-radius:999px;background:var(--surface-3);color:var(--muted)}
+.mapping span b{color:var(--text);font-weight:650}
+
+/* Tables */
+.table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:14px;-webkit-overflow-scrolling:touch}
+table{width:100%;border-collapse:collapse;font-size:.9rem}
+th{text-align:left;font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:750;padding:10px 10px;background:var(--surface-2);border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:8px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+th.num,td.num{text-align:right}
+.editor tbody tr{transition:background .15s}
+.editor tbody tr:hover{background:var(--surface-2)}
+.editor .in{padding:8px 10px;font-size:.9rem}
+.editor .c-idx{width:34px;color:var(--faint);font-family:var(--mono);font-size:.8rem;text-align:center}
+.editor .c-name{min-width:190px}
+.editor .c-mode{min-width:122px}
+.editor .c-stock,.editor .c-final{min-width:112px}
+.editor .c-vol{min-width:128px}
+.editor .c-mm{width:64px;text-align:center}
+.editor .c-act{width:112px}
+.row-actions{display:flex;gap:4px;justify-content:flex-end}
+.pv{display:block;font-family:var(--mono);font-size:.8rem;font-variant-numeric:tabular-nums}
+.pv:empty{display:none}
+.pv.calc{color:var(--accent);font-weight:700;font-size:.95rem;padding:8px 0}
+.pv.scaled{color:var(--blue);margin-top:4px}
+.pv.err{color:var(--danger);font-family:var(--sans);font-size:.74rem;line-height:1.3;margin-top:5px;font-weight:600}
+tr.has-err{background:var(--danger-soft)!important}
+.sum-bar{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:.83rem;padding:10px 14px;border-radius:12px;background:var(--surface-2);border:1px solid var(--border);margin-bottom:12px}
+.sum-bar .s-item b{font-family:var(--mono);font-weight:700}
+.sum-bar .s-status{margin-left:auto;font-weight:700}
+.sum-bar.ok .s-status{color:var(--ok)}
+.sum-bar.warn{border-color:color-mix(in srgb,var(--warn) 40%,transparent)}
+.sum-bar.warn .s-status{color:var(--warn)}
+.sum-bar.err{border-color:color-mix(in srgb,var(--danger) 40%,transparent)}
+.sum-bar.err .s-status{color:var(--danger)}
+.empty{text-align:center;padding:28px 16px;color:var(--muted);font-size:.9rem;border:1px dashed var(--border);border-radius:14px}
+
+/* Switch */
+.switch{position:relative;display:inline-block;width:44px;height:24px;cursor:pointer;flex:none;vertical-align:middle}
+.switch input{position:absolute;opacity:0;width:0;height:0}
+.slider{position:absolute;inset:0;background:var(--surface-3);border:1px solid var(--border-strong);border-radius:999px;transition:background .2s,border-color .2s}
+.slider::before{content:"";position:absolute;width:18px;height:18px;left:2px;top:2px;border-radius:50%;background:var(--muted);transition:transform .2s,background .2s}
+.switch input:checked + .slider{background:var(--accent);border-color:var(--accent)}
+.switch input:checked + .slider::before{transform:translateX(20px);background:var(--accent-ink)}
+.switch input:focus-visible + .slider{box-shadow:0 0 0 3px var(--accent-soft)}
+
+/* Results */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px}
+.stat{background:var(--surface-2);border:1px solid var(--border);border-radius:14px;padding:12px 14px}
+.stat .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:1.25rem;font-weight:750;letter-spacing:-.01em;margin-top:2px;word-break:break-all}
+.stat .v small{font-size:.65em;color:var(--muted);font-weight:600}
+.stat.accent{border-color:color-mix(in srgb,var(--accent) 45%,transparent);background:var(--accent-soft)}
+.stat.accent .v{color:var(--accent)}
+.progress-wrap{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:14px}
+.progress-text{font-weight:700;font-size:.9rem;min-width:130px}
+.progress{flex:1 1 180px;height:10px;background:var(--surface-3);border-radius:999px;overflow:hidden}
+.progress > span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--ok));border-radius:999px;transition:width .35s ease}
+.progress-wrap.complete .progress-text{color:var(--ok)}
+.results td{padding:11px 10px}
+.results tbody tr{cursor:pointer;transition:background .15s}
+.results tbody tr:hover{background:var(--surface-2)}
+.results tbody tr.next{background:var(--accent-soft)}
+.results tbody tr.next .rname::after{content:"next";margin-left:8px;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent-ink);background:var(--accent);padding:2px 7px;border-radius:999px;vertical-align:middle}
+.results tbody tr.done .rname{text-decoration:line-through;color:var(--faint)}
+.results tbody tr.done .c-total,.results tbody tr.done .c-per,.results tbody tr.done .c-conc{color:var(--faint)}
+.results .c-check{width:48px}
+.results .c-idx{width:34px;color:var(--faint);font-family:var(--mono);font-size:.8rem}
+.results .rname{font-weight:650}
+.results .c-conc{color:var(--muted);font-size:.84rem;font-family:var(--mono)}
+.results .c-per,.results .c-total{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.results .c-total{font-weight:800;font-size:1.02rem}
+.results tfoot td{background:var(--surface-2);font-weight:800;border-top:1px solid var(--border-strong);border-bottom:none}
+.results tfoot .c-total{color:var(--accent);font-size:1.1rem}
+.tag{display:inline-block;margin-left:7px;font-size:.66rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:2px 7px;border-radius:999px;background:var(--surface-3);color:var(--muted);vertical-align:middle}
+.flag{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;background:var(--warn);color:#2a1a00;font-size:.7rem;font-weight:900;margin-left:4px;vertical-align:middle;font-family:var(--sans)}
+.check{position:relative;display:inline-grid;place-items:center;cursor:pointer}
+.check input{position:absolute;inset:0;opacity:0;margin:0;cursor:pointer;width:100%;height:100%}
+.check .box{width:26px;height:26px;border-radius:8px;border:2px solid var(--border-strong);background:var(--surface);display:grid;place-items:center;transition:background .15s,border-color .15s,transform .1s}
+.check:hover .box{border-color:var(--ok)}
+.check input:checked + .box{background:var(--ok);border-color:var(--ok);transform:scale(1.04)}
+.check input:checked + .box::after{content:"";width:7px;height:13px;border:solid var(--ok-ink);border-width:0 3px 3px 0;transform:rotate(45deg) translate(-1px,-1px)}
+.check input:focus-visible + .box{box-shadow:0 0 0 3px var(--accent-soft)}
+.separate{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px dashed var(--border-strong);background:var(--surface-2);font-size:.86rem}
+.separate ul{margin:6px 0 0;padding-left:18px}
+.separate .num{font-weight:700}
+.is-stale .results,.is-stale .stats{opacity:.5;filter:saturate(.6)}
+
+/* Mobile editor: rows become cards */
+@media (max-width:760px){
+  .editor-wrap{border:none;overflow:visible}
+  .editor thead{display:none}
+  .editor,.editor tbody{display:block}
+  .editor tbody tr{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px;padding:14px;border:1px solid var(--border);border-radius:14px;margin-bottom:12px;background:var(--surface-2)}
+  .editor tbody tr:hover{background:var(--surface-2)}
+  .editor td{display:block;padding:0;border:none;min-width:0!important;width:auto!important}
+  .editor td[data-label]::before{content:attr(data-label);display:block;font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:750;margin-bottom:4px}
+  .editor .c-idx{display:none}
+  .editor .c-name{grid-column:1/-1}
+  .editor .c-mm{text-align:left}
+  .editor .c-act{grid-column:1/-1;border-top:1px solid var(--border);padding-top:10px}
+  .editor .in{background:var(--surface)}
+}
+/* Mobile results */
+@media (max-width:640px){
+  .results-wrap{border-radius:14px}
+  .results thead{display:none}
+  .results,.results tbody,.results tfoot{display:block}
+  .results tbody tr,.results tfoot tr{display:grid;grid-template-columns:40px 1fr auto;grid-template-areas:"chk name total" "chk conc per";gap:2px 10px;padding:12px;border-bottom:1px solid var(--border);align-items:center}
+  .results tfoot tr{grid-template-areas:"name name total" "name name per"}
+  .results td{padding:0;border:none;background:transparent!important}
+  .results .c-check{grid-area:chk;width:auto}
+  .results .c-idx{display:none}
+  .results .c-name{grid-area:name}
+  .results .c-conc{grid-area:conc;font-size:.76rem}
+  .results .c-per{grid-area:per;font-size:.76rem;color:var(--muted)}
+  .results .c-per::before{content:"per rxn ";color:var(--faint);font-family:var(--sans)}
+  .results .c-total{grid-area:total;font-size:1.08rem}
+  .results tfoot tr{background:var(--surface-2)}
+}
+
+/* Toast */
+#toast{position:fixed;left:50%;bottom:22px;transform:translate(-50%,16px);background:var(--surface-3);color:var(--text);border:1px solid var(--border-strong);padding:11px 18px;border-radius:999px;box-shadow:var(--shadow);font-size:.88rem;font-weight:600;opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;z-index:100;max-width:calc(100% - 32px);text-align:center}
+#toast.show{opacity:1;transform:translate(-50%,0)}
+#toast.error{border-color:var(--danger);color:var(--danger)}
+#toast.ok{border-color:var(--ok)}
+footer{text-align:center;color:var(--faint);font-size:.78rem;padding:0 16px 32px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+@media print{
+  :root,[data-theme]{--bg:#fff;--bg-grad:#fff;--surface:#fff;--surface-2:#f3f3f3;--surface-3:#e9e9e9;--border:#bbb;--border-strong:#888;--text:#000;--muted:#333;--faint:#555;--accent:#000;--accent-soft:transparent;--accent-ink:#fff;--ok:#000;--ok-ink:#fff;--shadow:none}
+  body{background:#fff}
+  .site-nav,#themeBtn,#paramsCard,#uploadCard,#reagentCard,.history,#resultsCard .actions,#resetChecks,#toast,footer,#staleNote{display:none!important}
+  .card{break-inside:avoid;box-shadow:none}
+  .results tbody tr.next{background:transparent}
+  .results tbody tr.next .rname::after{display:none}
+}
+</style>
+</head>
+<body>
+
+<nav class="site-nav" aria-label="Tools"><div class="site-nav-inner">
+  <a href="./index.html">Home</a>
+  <a href="./calculator.html" aria-current="page">Lab Calculator</a>
+  <a href="./field-collector.html">Field Data Collector</a>
+  <a href="./gel-analyzer.html">Gel Analyzer</a>
+</div></nav>
+
+<header class="app-header">
+  <div class="brand">
+    <div class="logo" aria-hidden="true">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3h6"/><path d="M10 3v6.2L4.6 18.4A1.8 1.8 0 0 0 6.2 21h11.6a1.8 1.8 0 0 0 1.6-2.6L14 9.2V3"/><path d="M7.5 15h9"/></svg>
+    </div>
+    <div>
+      <h1>Master Mix Calculator</h1>
+      <p>PCR · qPCR · RT reaction setup</p>
+    </div>
+  </div>
+  <button id="themeBtn" class="icon-btn" type="button" aria-label="Toggle light/dark theme" title="Toggle theme">
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor"/></svg>
+  </button>
+</header>
+
+<main class="container" id="calculatorView">
+
+  <!-- Display -->
+  <section class="card display" aria-live="polite" aria-label="Current calculation">
+    <div class="display-top">
+      <span class="label">Current calculation</span>
+      <span id="staleBadge" class="badge warn hidden">Inputs changed — press Calculate</span>
+    </div>
+    <div id="dispExpr" class="disp-expr">Enter your number of reactions and reagent sheet, then press Calculate.</div>
+    <div class="disp-main">
+      <div class="disp-block">
+        <div class="label">Total master mix</div>
+        <div id="dispTotal" class="disp-big">—<small> µL</small></div>
+        <div id="dispTotalSub" class="disp-sub">&nbsp;</div>
+      </div>
+      <div class="disp-block">
+        <div class="label">Dispense per reaction</div>
+        <div id="dispPerTube" class="disp-mid">—<small> µL</small></div>
+        <div id="dispPerTubeSub" class="disp-sub">&nbsp;</div>
+      </div>
+    </div>
+    <div class="history">
+      <div class="history-head">
+        <span class="label">History</span>
+        <button id="clearHist" class="link-btn" type="button">Clear</button>
+      </div>
+      <ul id="histList"></ul>
+      <div id="histEmpty" class="hist-empty">No calculations yet. Past runs appear here — tap one to restore its settings.</div>
+    </div>
+  </section>
+
+  <div class="grid-2">
+    <!-- Params -->
+    <section class="card" id="paramsCard">
+      <h2><span class="step">1</span> Run setup</h2>
+      <form id="paramForm" novalidate autocomplete="off">
+        <div class="field">
+          <label for="n">Number of samples / reactions</label>
+          <div class="stepper">
+            <button type="button" data-step="n" data-delta="-1" aria-label="Decrease reactions">−</button>
+            <input id="n" class="in" type="number" inputmode="numeric" min="1" step="1">
+            <button type="button" data-step="n" data-delta="1" aria-label="Increase reactions">+</button>
+          </div>
+        </div>
+        <div class="row-2">
+          <div class="field">
+            <label for="extra">Extra reactions <span class="muted">(NTC, controls)</span></label>
+            <div class="stepper">
+              <button type="button" data-step="extra" data-delta="-1" aria-label="Decrease extra reactions">−</button>
+              <input id="extra" class="in" type="number" inputmode="numeric" min="0" step="1">
+              <button type="button" data-step="extra" data-delta="1" aria-label="Increase extra reactions">+</button>
+            </div>
+          </div>
+          <div class="field">
+            <label for="rxnVol">Reaction volume</label>
+            <div class="input-suffix">
+              <input id="rxnVol" class="in num" type="number" inputmode="decimal" min="0" step="any">
+              <span>µL</span>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <label for="overage">Extra overage (pipetting loss)</label>
+          <div class="input-suffix">
+            <input id="overage" class="in num" type="number" inputmode="decimal" min="0" max="100" step="any">
+            <span>%</span>
+          </div>
+          <div class="chips" id="ovChips">
+            <button type="button" class="chip" data-ov="0">0%</button>
+            <button type="button" class="chip" data-ov="5">5%</button>
+            <button type="button" class="chip" data-ov="10">10%</button>
+            <button type="button" class="chip" data-ov="15">15%</button>
+            <button type="button" class="chip" data-ov="20">20%</button>
+          </div>
+        </div>
+        <div class="toggle-row">
+          <div class="t-text"><b>Scale sheet volumes</b>Rescale fixed µL to the reaction volume</div>
+          <label class="switch"><input id="scale" type="checkbox" aria-label="Scale fixed volumes to reaction volume"><span class="slider"></span></label>
+        </div>
+        <div class="field hidden" id="refField">
+          <label for="refVol">Sheet reference reaction volume</label>
+          <div class="input-suffix">
+            <input id="refVol" class="in num" type="number" inputmode="decimal" min="0" step="any">
+            <span>µL</span>
+          </div>
+          <p class="hint">Fixed volumes are multiplied by reaction volume ÷ reference volume. Concentration-based and fill rows always recalculate.</p>
+        </div>
+        <div class="field">
+          <label for="decimals">Decimal places shown</label>
+          <select id="decimals" class="in">
+            <option value="2">2 (0.00)</option>
+            <option value="3">3 (0.000)</option>
+            <option value="4">4 (0.0000)</option>
+          </select>
+        </div>
+        <button type="submit" class="btn primary lg" id="calcBtn">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01M8 19h8"/></svg>
+          Calculate master mix
+        </button>
+        <p class="hint" style="text-align:center">Press <kbd>Enter</kbd> in any field to calculate</p>
+        <div id="calcErrors"></div>
+      </form>
+    </section>
+
+    <!-- Upload -->
+    <section class="card" id="uploadCard">
+      <h2><span class="step">2</span> Master mix sheet</h2>
+      <label class="dropzone" id="dropzone" for="fileInput">
+        <input type="file" id="fileInput" accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,.ods,.json" hidden>
+        <div class="dz-icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/></svg></div>
+        <div class="dz-title">Drop your master mix sheet here</div>
+        <div class="dz-sub">or <span class="lnk">browse files</span> · CSV, TSV, Excel (.xlsx/.xls), JSON</div>
+      </label>
+      <div class="upload-actions">
+        <button type="button" class="btn sm" id="exampleBtn">Load example PCR mix</button>
+        <button type="button" class="btn sm ghost" id="templateBtn">Download template</button>
+      </div>
+      <details class="paste">
+        <summary>Paste a table from Excel / Google Sheets</summary>
+        <div class="paste-body">
+          <textarea id="pasteArea" class="in" placeholder="Reagent&#9;Stock&#9;Final&#9;µL/rxn&#10;10X Buffer&#9;10X&#9;1X&#9;2.5&#10;Water&#9;&#9;&#9;q.s."></textarea>
+          <div class="upload-actions"><button type="button" class="btn sm primary" id="pasteBtn">Import pasted table</button></div>
+        </div>
+      </details>
+      <div id="sheetInfo" class="sheet-info"></div>
+      <p class="hint">Recognized columns: <b>Reagent</b> · <b>Volume per rxn (µL)</b> · <b>Stock</b> · <b>Final</b> · <b>In master mix</b> (yes/no). A <b>Total</b> row sets the reaction volume. Water marked <b>q.s.</b> (or left blank) fills each reaction to volume; template/sample rows are kept out of the mix. Files are read locally in your browser.</p>
+    </section>
+  </div>
+
+  <!-- Reagents -->
+  <section class="card" id="reagentCard">
+    <div class="card-head">
+      <h2><span class="step">3</span> Reagents <span id="reagentCount" class="count"></span></h2>
+      <div class="actions">
+        <button type="button" class="btn sm" id="addRow">+ Add reagent</button>
+        <button type="button" class="btn sm ghost" id="exportSheet">Save sheet (CSV)</button>
+        <button type="button" class="btn sm ghost danger" id="clearRows">Clear all</button>
+      </div>
+    </div>
+    <div id="sumBar" class="sum-bar hidden"></div>
+    <div class="table-wrap editor-wrap" id="editorWrap">
+      <table class="editor">
+        <thead>
+          <tr>
+            <th>#</th><th>Reagent</th><th>Mode</th><th>Stock</th><th>Final</th><th class="num">µL / rxn</th><th>In MM</th><th></th>
+          </tr>
+        </thead>
+        <tbody id="editorBody"></tbody>
+      </table>
+    </div>
+    <div id="emptyEditor" class="empty hidden">No reagents yet — upload your sheet, load the example, or add reagents manually.</div>
+    <p class="hint"><b>Volume</b> = fixed µL per reaction · <b>Conc.</b> = calculated from stock → final using C₁V₁ = C₂V₂ (units must match family, e.g. µM/nM, X, U/µL, ng/µL) · <b>Fill</b> = brings each reaction up to the reaction volume (usually water). Toggle <b>In MM</b> off for anything added per tube (e.g. template).</p>
+  </section>
+
+  <!-- Results -->
+  <section class="card" id="resultsCard">
+    <div class="card-head">
+      <h2><span class="step">4</span> Results &amp; checklist</h2>
+      <div class="actions">
+        <button type="button" class="btn sm" id="copyBtn" disabled>Copy</button>
+        <button type="button" class="btn sm" id="csvBtn" disabled>CSV</button>
+        <button type="button" class="btn sm" id="printBtn" disabled>Print</button>
+      </div>
+    </div>
+    <div id="resultsEmpty" class="empty">Press <b>Calculate master mix</b> to see reagent volumes here.</div>
+    <div id="resultsBody" class="hidden">
+      <div id="staleNote" class="alert warn hidden" style="margin:0 0 14px">Inputs changed since this calculation. Press <b>Calculate</b> before pipetting.</div>
+      <div class="stats" id="stats"></div>
+      <div class="progress-wrap" id="progressWrap">
+        <div class="progress-text" id="progressText">0 of 0 added</div>
+        <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="progressBar"><span id="progressFill"></span></div>
+        <button type="button" class="btn sm ghost" id="resetChecks">Reset checklist</button>
+      </div>
+      <div class="table-wrap results-wrap">
+        <table class="results">
+          <thead>
+            <tr><th>Added</th><th>#</th><th>Reagent</th><th>Stock → Final</th><th class="num">µL / rxn</th><th class="num">Total µL</th></tr>
+          </thead>
+          <tbody id="resultsTbody"></tbody>
+          <tfoot id="resultsTfoot"></tfoot>
+        </table>
+      </div>
+      <div id="separateBox"></div>
+      <div id="warnBox"></div>
+    </div>
+  </section>
+</main>
+
+<footer id="calculatorFooter">Totals = µL per reaction × (reactions + extra) × (1 + overage %). Always verify against your protocol before pipetting.</footer>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ---------- Helpers ---------- */
+  const $ = (s, el) => (el || document).querySelector(s);
+  const $$ = (s, el) => Array.from((el || document).querySelectorAll(s));
+  const STORE_KEY = 'mmcalc.v1';
+  const uid = () => Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4);
+  const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cleanFloat = x => (typeof x === 'number' && isFinite(x)) ? parseFloat(x.toPrecision(12)) : x;
+
+  // Correct decimal rounding (avoids 1.005 -> 1.00 floating-point errors)
+  function roundStr(x, d) {
+    if (typeof x !== 'number' || !isFinite(x)) return '—';
+    let y = cleanFloat(x);
+    if (Math.abs(y) < 1e-15) y = 0;
+    const neg = y < 0; y = Math.abs(y);
+    const parts = y.toExponential().split('e');
+    const r = Math.round(Number(parts[0] + 'e' + (Number(parts[1]) + d)));
+    const out = (r / Math.pow(10, d)).toFixed(d);
+    return (neg && r !== 0 ? '-' : '') + out;
+  }
+  const fmt = x => roundStr(x, state.params.decimals || 2);
+  const trimNum = x => String(cleanFloat(Number(x)));
+  function factorStr(ov) {
+    let s = String(cleanFloat((100 + ov) / 100));
+    if (s.indexOf('.') === -1) s += '.00';
+    else if (s.split('.')[1].length < 2) s += '0';
+    return s;
+  }
+
+  function parseNum(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : NaN;
+    if (v == null) return NaN;
+    let s = String(v).trim();
+    if (!s) return NaN;
+    if (/^[+-]?\d+,\d+$/.test(s)) s = s.replace(',', '.');
+    s = s.replace(/,/g, '');
+    const m = s.match(/^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?/i);
+    return m ? parseFloat(m[0]) : NaN;
+  }
+
+  /* ---------- Concentration units ---------- */
+  const CONC_UNITS = {
+    'x': ['x', 1],
+    'm': ['mol', 1], 'mol/l': ['mol', 1], 'mm': ['mol', 1e-3], 'mmol/l': ['mol', 1e-3],
+    'um': ['mol', 1e-6], 'umol/l': ['mol', 1e-6], 'nm': ['mol', 1e-9], 'nmol/l': ['mol', 1e-9],
+    'pm': ['mol', 1e-12], 'pmol/l': ['mol', 1e-12], 'pmol/ul': ['mol', 1e-6], 'nmol/ml': ['mol', 1e-6], 'nmol/ul': ['mol', 1e-3],
+    'u/ul': ['u', 1], 'units/ul': ['u', 1], 'unit/ul': ['u', 1], 'u/ml': ['u', 1e-3], 'units/ml': ['u', 1e-3],
+    'g/l': ['g', 1], 'g/ml': ['g', 1000], 'mg/ml': ['g', 1], 'ug/ul': ['g', 1], 'mg/l': ['g', 1e-3], 'ug/ml': ['g', 1e-3],
+    'ng/ul': ['g', 1e-3], 'ng/ml': ['g', 1e-6], 'pg/ul': ['g', 1e-6], 'pg/ml': ['g', 1e-9],
+    '%': ['pct', 1], '%v/v': ['pct', 1], '%w/v': ['pct', 1], '%w/w': ['pct', 1],
+    '': ['none', 1]
+  };
+  function parseConc(s) {
+    if (s == null) return null;
+    let t = String(s).trim();
+    if (!t) return null;
+    t = t.replace(/[μµ]/g, 'u').replace(/×/g, 'x');
+    if (/^[+-]?\d+,\d+/.test(t)) t = t.replace(',', '.');
+    const m = t.match(/^([+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?)\s*(.*)$/i);
+    if (!m) return null;
+    const val = parseFloat(m[1]);
+    const key = m[2].toLowerCase().replace(/\s+/g, '').replace(/[()\[\]]/g, '');
+    const u = CONC_UNITS[key];
+    return { val: val, fam: u ? u[0] : '?' + key, f: u ? u[1] : 1, raw: m[2].trim() };
+  }
+  function concRatio(stock, final) {
+    const s = parseConc(stock), f = parseConc(final);
+    if (!s) return { err: 'Enter a stock concentration (e.g. 10 µM)' };
+    if (!f) return { err: 'Enter a final concentration (e.g. 0.4 µM)' };
+    if (s.fam !== f.fam) return { err: 'Units don\'t match (' + (s.raw || 'none') + ' vs ' + (f.raw || 'none') + ')' };
+    if (!(s.val > 0)) return { err: 'Stock must be greater than 0' };
+    if (f.val < 0) return { err: 'Final cannot be negative' };
+    const ratio = (f.val * f.f) / (s.val * s.f);
+    if (ratio > 1 + 1e-12) return { err: 'Final concentration exceeds stock' };
+    return { ratio: cleanFloat(ratio) };
+  }
+
+  /* ---------- State ---------- */
+  const DEFAULT_PARAMS = { n: 24, extra: 1, overage: 10, rxnVol: 25, decimals: 2, scale: false, refVol: 25 };
+  const MODE_LABEL = { vol: 'Volume', conc: 'Conc.', fill: 'Fill (q.s.)' };
+  function exampleReagents() {
+    return [
+      { name: '10X PCR Buffer', mode: 'conc', stock: '10X', final: '1X' },
+      { name: 'dNTP mix', mode: 'conc', stock: '10 mM', final: '0.2 mM' },
+      { name: 'MgCl₂', mode: 'conc', stock: '25 mM', final: '1.5 mM' },
+      { name: 'Forward primer', mode: 'conc', stock: '10 µM', final: '0.4 µM' },
+      { name: 'Reverse primer', mode: 'conc', stock: '10 µM', final: '0.4 µM' },
+      { name: 'Taq DNA polymerase', mode: 'vol', stock: '5 U/µL', final: '', vol: 0.125 },
+      { name: 'Nuclease-free water', mode: 'fill' },
+      { name: 'Template DNA', mode: 'vol', vol: 2, inMM: false }
+    ].map(r => Object.assign({ id: uid(), stock: '', final: '', vol: '', inMM: true }, r));
+  }
+  let state = {
+    reagents: exampleReagents(),
+    params: Object.assign({}, DEFAULT_PARAMS),
+    history: [], checks: {}, lastCalc: null, stale: false,
+    sheetInfo: { name: 'Example PCR mix (25 µL)', count: 8, mapping: null, warnings: [] },
+    theme: 'dark'
+  };
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s && Array.isArray(s.reagents)) {
+        state = Object.assign({}, state, s, { params: Object.assign({}, DEFAULT_PARAMS, s.params || {}) });
+        state.checks = state.checks || {};
+        state.history = Array.isArray(state.history) ? state.history : [];
+      }
+    } catch (e) { /* storage unavailable */ }
+  }
+  function save() {
+    try {
+      localStorage.setItem(STORE_KEY, JSON.stringify({
+        reagents: state.reagents, params: state.params, history: state.history, checks: state.checks,
+        lastCalc: state.lastCalc, stale: state.stale, sheetInfo: state.sheetInfo, theme: state.theme
+      }));
+    } catch (e) { /* ignore */ }
+  }
+
+  /* ---------- Core calculation ---------- */
+  function computePerRxn(list, p) {
+    const rv = p.rxnVol;
+    const scale = (p.scale && p.refVol > 0 && rv > 0) ? cleanFloat(rv / p.refVol) : 1;
+    const rows = list.map(r => ({ id: r.id, name: r.name || '(unnamed)', inMM: !!r.inMM, mode: r.mode, stock: r.stock || '', final: r.final || '', perRxn: NaN, err: '' }));
+    let fixed = 0;
+    const fills = [];
+    rows.forEach((row, i) => {
+      const r = list[i];
+      if (r.mode === 'vol') {
+        const v = parseNum(r.vol);
+        if (isNaN(v)) row.err = 'Enter a volume per reaction';
+        else if (v < 0) row.err = 'Volume cannot be negative';
+        else { row.perRxn = cleanFloat(v * scale); fixed += row.perRxn; }
+      } else if (r.mode === 'conc') {
+        const res = concRatio(r.stock, r.final);
+        if (res.err) row.err = res.err;
+        else if (!(rv > 0)) row.err = 'Set a reaction volume';
+        else { row.perRxn = cleanFloat(res.ratio * rv); fixed += row.perRxn; }
+      } else if (r.mode === 'fill') {
+        fills.push(i);
+      }
+    });
+    fixed = cleanFloat(fixed);
+    if (fills.length > 1) {
+      fills.forEach(i => { rows[i].err = 'Only one Fill (q.s.) reagent allowed'; });
+    } else if (fills.length === 1) {
+      const i = fills[0];
+      if (!(rv > 0)) rows[i].err = 'Set a reaction volume';
+      else {
+        const rem = cleanFloat(rv - fixed);
+        if (rem < -1e-9) rows[i].err = 'Other components exceed the ' + fmt(rv) + ' µL reaction by ' + fmt(-rem) + ' µL';
+        else rows[i].perRxn = Math.max(0, rem);
+      }
+    }
+    const sumAll = cleanFloat(rows.reduce((a, r) => a + (isFinite(r.perRxn) ? r.perRxn : 0), 0));
+    return { rows: rows, scale: scale, sumAll: sumAll, hasFill: fills.length === 1, hasErr: rows.some(r => r.err) };
+  }
+
+  function readParams() {
+    const p = state.params;
+    p.n = parseNum($('#n').value);
+    p.extra = $('#extra').value.trim() === '' ? 0 : parseNum($('#extra').value);
+    p.overage = $('#overage').value.trim() === '' ? 0 : parseNum($('#overage').value);
+    p.rxnVol = parseNum($('#rxnVol').value);
+    p.refVol = parseNum($('#refVol').value);
+    p.scale = $('#scale').checked;
+    p.decimals = Number($('#decimals').value) || 2;
+  }
+  function writeParams() {
+    const p = state.params;
+    const v = x => (x == null || (typeof x === 'number' && isNaN(x))) ? '' : String(x);
+    $('#n').value = v(p.n);
+    $('#extra').value = v(p.extra);
+    $('#overage').value = v(p.overage);
+    $('#rxnVol').value = v(p.rxnVol);
+    $('#refVol').value = v(p.refVol);
+    $('#scale').checked = !!p.scale;
+    $('#decimals').value = String(p.decimals || 2);
+    $('#refField').classList.toggle('hidden', !p.scale);
+    syncChips();
+  }
+  function syncChips() {
+    const ov = parseNum($('#overage').value);
+    $$('#ovChips .chip').forEach(c => c.classList.toggle('active', Number(c.dataset.ov) === ov));
+  }
+
+  function calculate() {
+    readParams();
+    const p = state.params;
+    const errs = [];
+    if (!(Number.isInteger(p.n) && p.n >= 1)) errs.push('Number of reactions must be a whole number ≥ 1.');
+    if (!(Number.isInteger(p.extra) && p.extra >= 0)) errs.push('Extra reactions must be a whole number ≥ 0.');
+    if (!(p.overage >= 0 && p.overage <= 100)) errs.push('Overage must be between 0 and 100%.');
+    if (!(p.rxnVol > 0)) errs.push('Reaction volume must be greater than 0 µL.');
+    if (p.scale && !(p.refVol > 0)) errs.push('Enter the sheet reference volume to scale volumes.');
+    if (!state.reagents.length) errs.push('Add reagents or upload your master mix sheet.');
+
+    const c = computePerRxn(state.reagents, p);
+    c.rows.forEach((r, i) => { if (r.err) errs.push('Row ' + (i + 1) + ' (' + r.name + '): ' + r.err); });
+    const mmRows = c.rows.filter(r => r.inMM);
+    if (state.reagents.length && !mmRows.length) errs.push('No reagents are marked "In MM".');
+
+    const box = $('#calcErrors');
+    if (errs.length) {
+      box.innerHTML = '<div class="alert error"><b>Fix before calculating:</b><ul>' + errs.map(e => '<li>' + esc(e) + '</li>').join('') + '</ul></div>';
+      toast(errs.length + ' issue' + (errs.length > 1 ? 's' : '') + ' to fix', 'error');
+      return;
+    }
+    box.innerHTML = '';
+
+    const reactions = p.n + p.extra;
+    const factor = cleanFloat(reactions * (100 + p.overage) / 100);
+    const mm = mmRows.map(r => ({
+      id: r.id, name: r.name, mode: r.mode, stock: r.stock, final: r.final, perRxn: r.perRxn,
+      total: cleanFloat(r.perRxn * reactions * (100 + p.overage) / 100)
+    }));
+    const sep = c.rows.filter(r => !r.inMM).map(r => ({ id: r.id, name: r.name, perRxn: r.perRxn, stock: r.stock, final: r.final }));
+    const mmPerRxn = cleanFloat(mm.reduce((a, r) => a + r.perRxn, 0));
+    const mmTotal = cleanFloat(mm.reduce((a, r) => a + r.total, 0));
+    const sepPerRxn = cleanFloat(sep.reduce((a, r) => a + r.perRxn, 0));
+
+    const warnings = [];
+    if (!c.hasFill && Math.abs(c.sumAll - p.rxnVol) > 1e-6) {
+      warnings.push('Components add up to ' + fmt(c.sumAll) + ' µL per reaction, but the reaction volume is ' + fmt(p.rxnVol) + ' µL. Add a Fill (water) row or adjust volumes.');
+    }
+    const tiny = mm.filter(r => r.total > 0 && r.total < 0.5);
+    if (tiny.length) warnings.push('Below ~0.5 µL total (hard to pipette accurately): ' + tiny.map(r => r.name).join(', ') + '. Consider pre-diluting or increasing overage.');
+    const zero = mm.filter(r => r.perRxn === 0);
+    if (zero.length) warnings.push('Zero volume: ' + zero.map(r => r.name).join(', ') + '.');
+    if (c.scale !== 1) warnings.push('Fixed volumes were scaled by ×' + trimNum(c.scale) + ' (' + fmt(p.rxnVol) + ' ÷ ' + fmt(p.refVol) + ' µL).');
+
+    const sig = mm.map(r => r.id + ':' + roundStr(r.total, 6)).join('|');
+    const prev = state.lastCalc;
+    if (prev && prev.sig !== sig && Object.keys(state.checks).length) {
+      state.checks = {};
+      setTimeout(() => toast('Volumes changed — checklist reset'), 50);
+    }
+
+    state.lastCalc = {
+      t: Date.now(), n: p.n, extra: p.extra, ov: p.overage, rxnVol: p.rxnVol, reactions: reactions, factor: factor,
+      mm: mm, sep: sep, mmPerRxn: mmPerRxn, mmTotal: mmTotal, sepPerRxn: sepPerRxn, warnings: warnings, sig: sig,
+      sheet: (state.sheetInfo && state.sheetInfo.name) || 'Custom mix'
+    };
+    state.stale = false;
+    state.history.unshift({ t: Date.now(), n: p.n, extra: p.extra, ov: p.overage, rxnVol: p.rxnVol, total: mmTotal, decimals: p.decimals });
+    state.history = state.history.slice(0, 25);
+    save();
+    renderDisplay();
+    renderResults();
+    toast('Master mix calculated: ' + fmt(mmTotal) + ' µL', 'ok');
+    if (window.innerWidth < 900) setTimeout(() => $('#resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' }), 120);
+  }
+
+  function markStale() {
+    if (state.lastCalc && !state.stale) {
+      state.stale = true;
+      renderDisplay();
+      renderResults();
+    }
+  }
+
+  /* ---------- Rendering: display ---------- */
+  function renderDisplay() {
+    const L = state.lastCalc;
+    const d = state.params.decimals || 2;
+    $('#staleBadge').classList.toggle('hidden', !(L && state.stale));
+    if (!L) {
+      $('#dispExpr').textContent = 'Enter your number of reactions and reagent sheet, then press Calculate.';
+      $('#dispTotal').innerHTML = '—<small> µL</small>';
+      $('#dispTotalSub').innerHTML = '&nbsp;';
+      $('#dispPerTube').innerHTML = '—<small> µL</small>';
+      $('#dispPerTubeSub').innerHTML = '&nbsp;';
+    } else {
+      $('#dispExpr').innerHTML =
+        '(' + L.n + ' rxn' + (L.extra ? ' + ' + L.extra + ' extra' : '') + ') × ' + factorStr(L.ov) +
+        ' <span class="muted">[+' + trimNum(L.ov) + '% overage]</span> = <b>' + fmt(L.factor) + '</b> reaction equivalents · ' +
+        fmt(L.rxnVol) + ' µL reactions';
+      $('#dispTotal').innerHTML = esc(fmt(L.mmTotal)) + '<small> µL</small>';
+      $('#dispTotalSub').textContent = (L.mmTotal >= 1000 ? '= ' + roundStr(L.mmTotal / 1000, d + 1) + ' mL · ' : '') + L.mm.length + ' reagents · ' + L.sheet;
+      $('#dispPerTube').innerHTML = esc(fmt(L.mmPerRxn)) + '<small> µL MM</small>';
+      $('#dispPerTubeSub').textContent = L.sep.length
+        ? 'then add ' + L.sep.map(s => fmt(s.perRxn) + ' µL ' + s.name).join(', ') + ' per tube'
+        : 'master mix per reaction tube/well';
+    }
+    renderHistory();
+  }
+  function timeStr(t) {
+    const dt = new Date(t), now = new Date();
+    const hm = dt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return dt.toDateString() === now.toDateString() ? hm : dt.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + hm;
+  }
+  function renderHistory() {
+    const H = state.history;
+    $('#histEmpty').classList.toggle('hidden', H.length > 0);
+    $('#clearHist').classList.toggle('hidden', H.length === 0);
+    $('#histList').innerHTML = H.map((h, i) =>
+      '<li><button type="button" class="hist-item" data-i="' + i + '" title="Restore these run settings">' +
+      '<span class="h-time">' + esc(timeStr(h.t)) + '</span>' +
+      '<span class="h-expr">' + h.n + (h.extra ? ' + ' + h.extra : '') + ' rxn · +' + esc(trimNum(h.ov)) + '% · ' + esc(roundStr(h.rxnVol, 2)) + ' µL each</span>' +
+      '<span class="h-res">' + esc(roundStr(h.total, h.decimals || 2)) + ' µL</span></button></li>'
+    ).join('');
+  }
+
+  /* ---------- Rendering: editor ---------- */
+  function rowHTML(r, i, len) {
+    const isConc = r.mode === 'conc', isFill = r.mode === 'fill';
+    const opts = ['vol', 'conc', 'fill'].map(m => '<option value="' + m + '"' + (r.mode === m ? ' selected' : '') + '>' + MODE_LABEL[m] + '</option>').join('');
+    return '<tr data-id="' + r.id + '">' +
+      '<td class="c-idx">' + (i + 1) + '</td>' +
+      '<td class="c-name" data-label="Reagent ' + (i + 1) + '"><input class="in f-name" value="' + esc(r.name) + '" placeholder="Reagent name" aria-label="Reagent name"></td>' +
+      '<td class="c-mode" data-label="Mode"><select class="in f-mode" aria-label="Calculation mode">' + opts + '</select></td>' +
+      '<td class="c-stock" data-label="Stock"><input class="in f-stock" value="' + esc(r.stock) + '" placeholder="' + (isConc ? 'e.g. 10 µM' : 'optional') + '"' + (isFill ? ' disabled' : '') + ' aria-label="Stock concentration"></td>' +
+      '<td class="c-final" data-label="Final"><input class="in f-final" value="' + esc(r.final) + '" placeholder="' + (isConc ? 'e.g. 0.4 µM' : 'optional') + '"' + (isFill ? ' disabled' : '') + ' aria-label="Final concentration"></td>' +
+      '<td class="c-vol num" data-label="µL / rxn">' +
+        (r.mode === 'vol' ? '<input class="in num f-vol" inputmode="decimal" value="' + esc(r.vol == null ? '' : r.vol) + '" placeholder="0.00" aria-label="Microliters per reaction">' : '') +
+        '<span class="pv" id="pv-' + r.id + '"></span></td>' +
+      '<td class="c-mm" data-label="In MM"><label class="switch" title="Include in master mix"><input type="checkbox" class="f-mm"' + (r.inMM ? ' checked' : '') + ' aria-label="Include in master mix"><span class="slider"></span></label></td>' +
+      '<td class="c-act"><div class="row-actions">' +
+        '<button type="button" class="icon-btn sm act-up"' + (i === 0 ? ' disabled' : '') + ' aria-label="Move up" title="Move up">↑</button>' +
+        '<button type="button" class="icon-btn sm act-down"' + (i === len - 1 ? ' disabled' : '') + ' aria-label="Move down" title="Move down">↓</button>' +
+        '<button type="button" class="icon-btn sm danger act-del" aria-label="Remove reagent" title="Remove">✕</button>' +
+      '</div></td></tr>';
+  }
+  function renderEditor() {
+    const list = state.reagents;
+    $('#reagentCount').textContent = list.length ? String(list.length) : '';
+    $('#reagentCount').classList.toggle('hidden', !list.length);
+    $('#emptyEditor').classList.toggle('hidden', list.length > 0);
+    $('#editorWrap').classList.toggle('hidden', list.length === 0);
+    $('#editorBody').innerHTML = list.map((r, i) => rowHTML(r, i, list.length)).join('');
+    updatePreview();
+  }
+  function updatePreview() {
+    const p = state.params;
+    const c = computePerRxn(state.reagents, p);
+    c.rows.forEach(row => {
+      const el = document.getElementById('pv-' + row.id);
+      if (!el) return;
+      const tr = el.closest('tr');
+      tr.classList.toggle('has-err', !!row.err);
+      if (row.err) { el.className = 'pv err'; el.textContent = row.err; }
+      else if (row.mode === 'vol') {
+        if (c.scale !== 1) { el.className = 'pv scaled'; el.textContent = '→ ' + fmt(row.perRxn) + ' µL'; }
+        else { el.className = 'pv'; el.textContent = ''; }
+      } else {
+        el.className = 'pv calc';
+        el.textContent = fmt(row.perRxn) + ' µL';
+        el.title = row.mode === 'fill' ? 'Fills each reaction to ' + fmt(p.rxnVol) + ' µL' : 'C₁V₁ = C₂V₂';
+      }
+    });
+    const bar = $('#sumBar');
+    if (!state.reagents.length) { bar.classList.add('hidden'); return; }
+    bar.classList.remove('hidden');
+    const mm = cleanFloat(c.rows.filter(r => r.inMM && isFinite(r.perRxn)).reduce((a, r) => a + r.perRxn, 0));
+    const sp = cleanFloat(c.rows.filter(r => !r.inMM && isFinite(r.perRxn)).reduce((a, r) => a + r.perRxn, 0));
+    let cls = 'ok', status = '✓ Matches reaction volume';
+    if (c.hasErr) { cls = 'err'; status = 'Fix highlighted rows'; }
+    else if (!(p.rxnVol > 0)) { cls = 'err'; status = 'Set a reaction volume'; }
+    else if (Math.abs(c.sumAll - p.rxnVol) > 1e-6) { cls = 'warn'; status = (c.sumAll > p.rxnVol ? 'Over by ' : 'Short by ') + fmt(Math.abs(c.sumAll - p.rxnVol)) + ' µL'; }
+    bar.className = 'sum-bar ' + cls;
+    bar.innerHTML =
+      '<span class="s-item">Per reaction: <b>' + fmt(c.sumAll) + '</b> / ' + (p.rxnVol > 0 ? fmt(p.rxnVol) : '—') + ' µL</span>' +
+      '<span class="s-item">Master mix: <b>' + fmt(mm) + '</b> µL</span>' +
+      (sp ? '<span class="s-item">Added separately: <b>' + fmt(sp) + '</b> µL</span>' : '') +
+      '<span class="s-status">' + esc(status) + '</span>';
+  }
+  function onDataChange() { markStale(); updatePreview(); save(); }
+  const getR = id => state.reagents.find(r => r.id === id);
+
+  /* ---------- Rendering: results ---------- */
+  function concStr(r, rv) {
+    if (r.mode === 'fill') return 'to ' + fmt(rv) + ' µL';
+    if (r.stock && r.final) return esc(r.stock) + ' → ' + esc(r.final);
+    if (r.stock) return esc(r.stock);
+    return '—';
+  }
+  function renderResults() {
+    const L = state.lastCalc;
+    $('#resultsEmpty').classList.toggle('hidden', !!L);
+    $('#resultsBody').classList.toggle('hidden', !L);
+    $('#resultsCard').classList.toggle('is-stale', !!(L && state.stale));
+    $('#staleNote').classList.toggle('hidden', !(L && state.stale));
+    ['#copyBtn', '#csvBtn', '#printBtn'].forEach(s => { $(s).disabled = !L; });
+    if (!L) return;
+    const d = state.params.decimals || 2;
+
+    $('#stats').innerHTML =
+      stat('Reactions', L.n + (L.extra ? ' <small>+ ' + L.extra + '</small>' : '')) +
+      stat('Overage', '+' + esc(trimNum(L.ov)) + '<small>% (×' + factorStr(L.ov) + ')</small>') +
+      stat('Reaction equivalents', esc(fmt(L.factor))) +
+      stat('Per reaction (MM)', esc(fmt(L.mmPerRxn)) + '<small> µL</small>') +
+      stat('Total master mix', esc(fmt(L.mmTotal)) + '<small> µL</small>' + (L.mmTotal >= 1000 ? '<br><small>' + roundStr(L.mmTotal / 1000, d + 1) + ' mL</small>' : ''), true);
+
+    const next = L.mm.find(r => !state.checks[r.id]);
+    $('#resultsTbody').innerHTML = L.mm.map((r, i) => {
+      const done = !!state.checks[r.id];
+      const flag = (r.total > 0 && r.total < 0.5) ? '<span class="flag" title="Below ~0.5 µL — hard to pipette accurately">!</span>' : '';
+      return '<tr data-id="' + r.id + '" class="' + (done ? 'done ' : '') + (next && next.id === r.id ? 'next' : '') + '">' +
+        '<td class="c-check"><label class="check"><input type="checkbox"' + (done ? ' checked' : '') + ' aria-label="Mark ' + esc(r.name) + ' as added"><span class="box"></span></label></td>' +
+        '<td class="c-idx">' + (i + 1) + '</td>' +
+        '<td class="c-name"><span class="rname">' + esc(r.name) + '</span>' + (r.mode === 'fill' ? '<span class="tag">fill</span>' : '') + '</td>' +
+        '<td class="c-conc">' + concStr(r, L.rxnVol) + '</td>' +
+        '<td class="c-per">' + esc(fmt(r.perRxn)) + '</td>' +
+        '<td class="c-total">' + esc(fmt(r.total)) + flag + '</td></tr>';
+    }).join('');
+    $('#resultsTfoot').innerHTML =
+      '<tr><td class="c-name" colspan="4">Master mix total</td><td class="c-per">' + esc(fmt(L.mmPerRxn)) + '</td><td class="c-total">' + esc(fmt(L.mmTotal)) + ' µL</td></tr>';
+
+    $('#separateBox').innerHTML = L.sep.length
+      ? '<div class="separate"><b>After dispensing ' + esc(fmt(L.mmPerRxn)) + ' µL master mix into each tube, add separately per reaction:</b><ul>' +
+        L.sep.map(s => '<li><span class="num">' + esc(fmt(s.perRxn)) + ' µL</span> ' + esc(s.name) + '</li>').join('') +
+        '</ul></div>'
+      : '';
+    $('#warnBox').innerHTML = L.warnings.length
+      ? '<div class="alert warn"><b>Check:</b><ul>' + L.warnings.map(w => '<li>' + esc(w) + '</li>').join('') + '</ul></div>'
+      : '';
+    updateProgress();
+  }
+  function stat(label, value, accent) {
+    return '<div class="stat' + (accent ? ' accent' : '') + '"><div class="label">' + esc(label) + '</div><div class="v">' + value + '</div></div>';
+  }
+  function updateProgress() {
+    const L = state.lastCalc;
+    if (!L) return;
+    const total = L.mm.length;
+    const done = L.mm.filter(r => state.checks[r.id]).length;
+    const pct = total ? Math.round(done / total * 100) : 0;
+    $('#progressFill').style.width = pct + '%';
+    $('#progressBar').setAttribute('aria-valuenow', String(pct));
+    const complete = total > 0 && done === total;
+    $('#progressWrap').classList.toggle('complete', complete);
+    $('#progressText').textContent = complete ? '✓ All ' + total + ' reagents added' : done + ' of ' + total + ' added';
+  }
+  function toggleCheck(id) {
+    if (state.checks[id]) delete state.checks[id]; else state.checks[id] = true;
+    save();
+    renderResults();
+    const L = state.lastCalc;
+    if (L && L.mm.length && L.mm.every(r => state.checks[r.id])) {
+      toast('All reagents added — mix gently, spin down, dispense ' + fmt(L.mmPerRxn) + ' µL per tube', 'ok');
+    }
+  }
+
+  /* ---------- Sheet parsing ---------- */
+  function parseDelimited(text) {
+    text = String(text).replace(/^﻿/, '');
+    const sample = text.split(/\r?\n/).slice(0, 20).join('\n');
+    let delim = ',', best = -1;
+    ['\t', ',', ';', '|'].forEach(d => { const c = sample.split(d).length - 1; if (c > best) { best = c; delim = d; } });
+    const rows = []; let row = [], cell = '', q = false;
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) {
+        if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; }
+        else cell += ch;
+      } else if (ch === '"' && cell === '') q = true;
+      else if (ch === delim) { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') {
+        if (ch === '\r' && text[i + 1] === '\n') i++;
+        row.push(cell); rows.push(row); row = []; cell = '';
+      } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows;
+  }
+  function jsonToRows(obj) {
+    const arr = Array.isArray(obj) ? obj : (obj && (obj.reagents || obj.components || obj.items));
+    if (!Array.isArray(arr) || !arr.length) throw new Error('JSON must be an array of reagent objects.');
+    if (Array.isArray(arr[0])) return arr;
+    const keys = Array.from(new Set(arr.reduce((a, o) => a.concat(Object.keys(o || {})), [])));
+    return [keys].concat(arr.map(o => keys.map(k => (o && o[k] != null) ? o[k] : '')));
+  }
+  function roleOf(raw) {
+    const h = String(raw).toLowerCase().replace(/[μµ]/g, 'u').trim();
+    if (!h || h.length > 60) return null;
+    if (/^(in\s*(the\s*)?(mm|master\s*mix|mix)\??|include[sd]?\??|add\s*to\s*(mm|master\s*mix|mix)\??|mm\?)$/.test(h)) return 'inmm';
+    if (/^units?$/.test(h)) return 'unit';
+    const stockish = /stock|initial|\bc1\b|starting|supplied|original|source/.test(h);
+    const finalish = /final|working|\bc2\b|in\s*(rxn|reaction)|desired|target/.test(h);
+    if (/conc|\[.*\]|molarity/.test(h)) return stockish ? 'stock' : finalish ? 'final' : 'conc';
+    if (/vol|\bul\b|\bml\b|(^|[^\d.])1\s*x\b|per\s*(rxn|reaction|sample|well|tube)|\/\s*rxn|amount|qty|quantity/.test(h)) return 'volume';
+    if (stockish) return 'stock';
+    if (finalish) return 'final';
+    if (/reagent|component|name|item|material|reactant|ingredient|description|solution|chemical/.test(h)) return 'name';
+    return null;
+  }
+  function isTotalish(h) {
+    return /total|master|\bmm\b|\bfor\s*\d|x\s*\d|\d\s*x\b|\bn\s*=|rxns|reactions|samples/.test(h) &&
+      !/(^|[^\d.])1\s*x\b|per\b|\/\s*rxn|each|single/.test(h);
+  }
+  function detectN(h) {
+    const m = h.match(/(?:for|x|×)\s*(\d+)/) || h.match(/(\d+)\s*(?:rxns?|reactions?|samples?|x\b)/);
+    const n = m ? parseInt(m[1], 10) : NaN;
+    return n > 1 ? n : null;
+  }
+  const isWater = n => /water|h2o|h₂o|\bnfw\b|nuclease[\s-]*free|ddh2o|dh2o|milli[\s-]*q|\bdw\b|rnase[\s-]*free\s*w/i.test(n);
+  const isTemplate = n => /(template|\bsamples?\b|\bgdna\b|\bcdna\b|\bunknown\b|^dna$|^rna$|\bextract\b)/i.test(n) &&
+    !/polymerase|buffer|dntp|primer|probe|enzyme|master\s*mix|rt\s*mix|\bmix$/i.test(n);
+  const isQS = s => /^(q\.?\s*s\.?|qs\b|to\b|up\s*to|fill|remainder|rest\b|balance|make\s*up|adjust)/i.test(s) || /q\.s/i.test(s);
+  function parseVolume(v, factor) {
+    if (typeof v === 'number') return { val: v * factor };
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return { val: null };
+    if (isQS(s)) return { val: null, qs: true };
+    const n = parseNum(s);
+    if (isNaN(n)) return { val: null, text: s };
+    const u = s.toLowerCase().replace(/[μµ]/g, 'u');
+    let f = factor;
+    if (/\d\s*ml\b/.test(u)) f = 1000; else if (/\d\s*nl\b/.test(u)) f = 0.001; else if (/\d\s*ul\b/.test(u)) f = 1;
+    return { val: n * f };
+  }
+
+  function rowsToReagents(rawRows) {
+    const rows = rawRows
+      .map(r => (r || []).map(c => c == null ? '' : (typeof c === 'number' ? c : String(c).trim())))
+      .filter(r => r.some(c => c !== ''));
+    if (!rows.length) throw new Error('The sheet appears to be empty.');
+    const width = Math.max.apply(null, rows.map(r => r.length));
+    let hIdx = -1, roles = null;
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const rl = rows[i].map(c => typeof c === 'string' ? roleOf(c) : null);
+      const set = new Set(rl.filter(Boolean));
+      if (set.size >= 2 && (set.has('name') || set.has('volume'))) { hIdx = i; roles = rl; break; }
+    }
+    const col = { name: -1, volume: -1, stock: -1, final: -1, conc: -1, unit: -1, inmm: -1 };
+    const warnings = [];
+    let volFactor = 1, volDivisor = 1;
+    const data = rows.slice(hIdx + 1);
+    const used = () => Object.keys(col).map(k => col[k]);
+    const isNumericCol = c => {
+      let num = 0, tot = 0;
+      data.forEach(r => { const v = r[c]; if (v !== '' && v != null) { tot++; if (!isNaN(parseNum(v))) num++; } });
+      return tot > 0 && num / tot >= 0.6;
+    };
+    let headers = [];
+    if (hIdx >= 0) {
+      headers = rows[hIdx].map(c => String(c).toLowerCase().replace(/[μµ]/g, 'u'));
+      const volCols = [];
+      roles.forEach((r, i) => { if (!r) return; if (r === 'volume') volCols.push(i); else if (col[r] === -1) col[r] = i; });
+      if (volCols.length) {
+        const perCols = volCols.filter(i => !isTotalish(headers[i]));
+        if (perCols.length) {
+          const pref = perCols.find(i => /(^|[^\d.])1\s*x\b|per\b|\/\s*rxn|each|single/.test(headers[i]));
+          col.volume = pref != null ? pref : perCols[0];
+        } else {
+          col.volume = volCols[0];
+          const n = detectN(headers[col.volume]);
+          if (n) { volDivisor = n; warnings.push('Only a multi-reaction volume column was found; volumes were divided by ' + n + ' to get µL per reaction.'); }
+          else warnings.push('The volume column looks like a total for several reactions — confirm the µL/rxn values below.');
+        }
+        const h = headers[col.volume];
+        if (/\bml\b/.test(h)) volFactor = 1000; else if (/\bnl\b/.test(h)) volFactor = 0.001;
+      }
+      if (col.conc !== -1) {
+        if (col.stock === -1) col.stock = col.conc;
+        else if (col.final === -1) col.final = col.conc;
+      }
+    }
+    if (col.name === -1) {
+      for (let c = 0; c < width; c++) { if (used().indexOf(c) !== -1) continue; if (!isNumericCol(c)) { col.name = c; break; } }
+    }
+    if (col.volume === -1 && hIdx < 0) {
+      for (let c = 0; c < width; c++) { if (c === col.name) continue; if (isNumericCol(c)) { col.volume = c; break; } }
+    }
+    if (col.name === -1) throw new Error('Could not find a reagent name column.');
+
+    const hdrUnit = c => {
+      if (c < 0 || hIdx < 0) return '';
+      const m = String(rows[hIdx][c]).match(/[(\[]\s*([^)\]]+?)\s*[)\]]/);
+      if (!m) return '';
+      const pc = parseConc('1 ' + m[1]);
+      return pc && pc.fam.charAt(0) !== '?' && pc.fam !== 'none' ? m[1] : '';
+    };
+    const stockUnit = hdrUnit(col.stock), finalUnit = hdrUnit(col.final);
+    const bare = s => /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s);
+
+    let totalVol = null;
+    const out = [];
+    data.forEach(r => {
+      const g = c => (c >= 0 && r[c] != null) ? r[c] : '';
+      const name = String(g(col.name)).trim();
+      if (!name) return;
+      if (/^(total|sum|grand\s*total|final\s*vol)/i.test(name)) {
+        const tv = parseVolume(g(col.volume), volFactor).val;
+        if (tv != null && tv > 0) totalVol = cleanFloat(tv / volDivisor);
+        return;
+      }
+      let stock = String(g(col.stock)).trim(), final = String(g(col.final)).trim();
+      let vf = volFactor;
+      const unitTxt = String(g(col.unit)).trim();
+      if (unitTxt) {
+        const u = unitTxt.toLowerCase().replace(/[μµ]/g, 'u');
+        const VU = { ul: 1, ml: 1000, nl: 0.001, l: 1e6 };
+        if (VU[u] != null) vf = VU[u];
+        else { if (stock && bare(stock)) stock += ' ' + unitTxt; if (final && bare(final)) final += ' ' + unitTxt; }
+      }
+      if (stockUnit && stock && bare(stock)) stock += ' ' + stockUnit;
+      if (finalUnit && final && bare(final)) final += ' ' + finalUnit;
+      const volRaw = String(g(col.volume)).trim();
+      const vp = parseVolume(g(col.volume), vf);
+      const water = isWater(name), templ = isTemplate(name);
+      const hasConc = !!(parseConc(stock) && parseConc(final));
+      if (volRaw === '' && !stock && !final && !water && !templ) return; // heading / note row
+      let mode, vol = '';
+      if (vp.val != null) { mode = 'vol'; vol = cleanFloat(vp.val / volDivisor); }
+      else if (vp.qs || (water && !hasConc)) mode = 'fill';
+      else if (hasConc) mode = 'conc';
+      else mode = 'vol';
+      const mmTxt = String(g(col.inmm)).trim().toLowerCase();
+      let inMM;
+      if (/^(y|yes|true|1|✓|✔|x|in)$/.test(mmTxt)) inMM = true;
+      else if (/^(n|no|false|0|out|separate)$/.test(mmTxt)) inMM = false;
+      else inMM = !templ;
+      out.push({ id: uid(), name: name, mode: mode, vol: vol, stock: stock, final: final, inMM: inMM });
+    });
+
+    const mapping = [];
+    const lab = { name: 'Name', volume: 'µL/rxn', stock: 'Stock', final: 'Final', unit: 'Unit', inmm: 'In MM' };
+    Object.keys(lab).forEach(k => { if (col[k] >= 0) mapping.push([lab[k], hIdx >= 0 ? String(rows[hIdx][col[k]]) : 'column ' + (col[k] + 1)]); });
+    return { reagents: out, totalVol: totalVol, warnings: warnings, mapping: mapping };
+  }
+
+  function applyImport(res, label) {
+    if (!res.reagents.length) throw new Error('No reagents found. Make sure the sheet has a reagent name column plus volume or concentration columns.');
+    const p = state.params;
+    const warnings = res.warnings.slice();
+    if (res.totalVol > 0) { p.rxnVol = res.totalVol; p.refVol = res.totalVol; }
+    else if (res.reagents.every(r => r.mode === 'vol' && !isNaN(parseNum(r.vol)))) {
+      const s = cleanFloat(res.reagents.reduce((a, r) => a + parseNum(r.vol), 0));
+      p.rxnVol = s; p.refVol = s;
+      warnings.push('No "Total" row found — reaction volume set to the sum of components (' + roundStr(s, p.decimals) + ' µL).');
+    } else {
+      p.refVol = p.rxnVol;
+      warnings.push('No "Total" row found — keeping reaction volume at ' + roundStr(p.rxnVol, p.decimals) + ' µL. Confirm it matches your protocol.');
+    }
+    p.scale = false;
+    state.reagents = res.reagents;
+    state.sheetInfo = { name: label, count: res.reagents.length, mapping: res.mapping, warnings: warnings };
+    state.checks = {};
+    state.lastCalc = null;
+    state.stale = false;
+    $('#calcErrors').innerHTML = '';
+    writeParams();
+    renderEditor();
+    renderSheetInfo();
+    renderDisplay();
+    renderResults();
+    save();
+    toast('Imported ' + res.reagents.length + ' reagents from ' + label, 'ok');
+  }
+  function renderSheetInfo(errMsg) {
+    const box = $('#sheetInfo');
+    if (errMsg) { box.innerHTML = '<div class="alert error">' + esc(errMsg) + '</div>'; return; }
+    const s = state.sheetInfo;
+    if (!s) { box.innerHTML = ''; return; }
+    box.innerHTML =
+      '<div class="sheet-meta"><span class="dot"></span><b>' + esc(s.name) + '</b><span class="muted">· ' + s.count + ' reagents loaded</span></div>' +
+      (s.mapping && s.mapping.length ? '<div class="mapping">' + s.mapping.map(m => '<span>' + esc(m[0]) + ' ← <b>' + esc(m[1]) + '</b></span>').join('') + '</div>' : '') +
+      (s.warnings && s.warnings.length ? '<div class="alert warn">' + s.warnings.map(esc).join('<br>') + '</div>' : '');
+  }
+
+  let xlsxPromise = null;
+  function loadXLSX() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxPromise) {
+      xlsxPromise = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        s.onload = () => resolve(window.XLSX);
+        s.onerror = () => { xlsxPromise = null; reject(new Error('Could not load the Excel reader (are you offline?). Save the sheet as CSV and upload again.')); };
+        document.head.appendChild(s);
+      });
+    }
+    return xlsxPromise;
+  }
+  async function handleFile(file) {
+    if (!file) return;
+    const name = file.name;
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    try {
+      let rows;
+      if (['xlsx', 'xls', 'xlsm', 'ods'].indexOf(ext) !== -1) {
+        toast('Reading spreadsheet…');
+        const XLSX = await loadXLSX();
+        const buf = await file.arrayBuffer();
+        const wb = XLSX.read(buf, { type: 'array' });
+        let picked = null;
+        for (const sn of wb.SheetNames) {
+          const r = XLSX.utils.sheet_to_json(wb.Sheets[sn], { header: 1, raw: true, defval: '', blankrows: false });
+          if (r.filter(x => x.some(c => c !== '')).length >= 2) { picked = r; break; }
+        }
+        if (!picked) throw new Error('No data found in the workbook.');
+        rows = picked;
+      } else {
+        const text = await file.text();
+        rows = (ext === 'json' || /^\s*[\[{]/.test(text)) ? jsonToRows(JSON.parse(text)) : parseDelimited(text);
+      }
+      applyImport(rowsToReagents(rows), name);
+    } catch (err) {
+      renderSheetInfo((err && err.message) || 'Could not read this file.');
+      toast((err && err.message) || 'Could not read this file', 'error');
+    }
+  }
+
+  /* ---------- Export ---------- */
+  const csvCell = c => { const s = String(c == null ? '' : c); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  function buildResultsTable(sep) {
+    const L = state.lastCalc;
+    const lines = [
+      ['Master mix calculation', new Date(L.t).toLocaleString()],
+      ['Sheet', L.sheet],
+      ['Reactions', L.n + (L.extra ? ' + ' + L.extra + ' extra' : '')],
+      ['Overage', trimNum(L.ov) + '%'],
+      ['Reaction equivalents', fmt(L.factor)],
+      ['Reaction volume (uL)', fmt(L.rxnVol)],
+      [],
+      ['#', 'Reagent', 'Stock', 'Final', 'uL per reaction', 'Total uL']
+    ];
+    L.mm.forEach((r, i) => lines.push([i + 1, r.name, r.stock || '', r.mode === 'fill' ? 'to ' + fmt(L.rxnVol) + ' uL' : (r.final || ''), fmt(r.perRxn), fmt(r.total)]));
+    lines.push(['', 'Master mix total', '', '', fmt(L.mmPerRxn), fmt(L.mmTotal)]);
+    if (L.sep.length) {
+      lines.push([]);
+      lines.push(['Add separately to each reaction']);
+      L.sep.forEach(r => lines.push(['', r.name, r.stock || '', r.final || '', fmt(r.perRxn), '']));
+    }
+    return lines.map(row => row.map(c => sep === ',' ? csvCell(c) : String(c).replace(/\t/g, ' ')).join(sep)).join('\n');
+  }
+  function download(name, text, type) {
+    const blob = new Blob(['﻿' + text], { type: type || 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+  }
+  async function copyText(text) {
+    try { await navigator.clipboard.writeText(text); return true; }
+    catch (e) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      let ok = false; try { ok = document.execCommand('copy'); } catch (e2) { ok = false; }
+      ta.remove(); return ok;
+    }
+  }
+  const TEMPLATE_CSV = [
+    'Reagent,Stock,Final,Volume per reaction (uL),In master mix',
+    '10X PCR Buffer,10X,1X,,yes',
+    'dNTP mix,10 mM,0.2 mM,,yes',
+    'MgCl2,25 mM,1.5 mM,,yes',
+    'Forward primer,10 uM,0.4 uM,,yes',
+    'Reverse primer,10 uM,0.4 uM,,yes',
+    'Taq DNA polymerase,5 U/uL,,0.125,yes',
+    'Nuclease-free water,,,q.s.,yes',
+    'Template DNA,,,2,no',
+    'Total,,,25,'
+  ].join('\n');
+  function sheetCSV() {
+    const lines = ['Reagent,Stock,Final,Volume per reaction (uL),In master mix'];
+    state.reagents.forEach(r => {
+      const v = r.mode === 'fill' ? 'q.s.' : r.mode === 'vol' ? (r.vol == null ? '' : r.vol) : '';
+      lines.push([r.name, r.stock || '', r.final || '', v, r.inMM ? 'yes' : 'no'].map(csvCell).join(','));
+    });
+    lines.push(['Total', '', '', isNaN(state.params.rxnVol) ? '' : state.params.rxnVol, ''].join(','));
+    return lines.join('\n');
+  }
+
+  /* ---------- UI utilities ---------- */
+  let toastTimer = null;
+  function toast(msg, kind) {
+    const t = $('#toast');
+    t.textContent = msg;
+    t.className = 'show' + (kind ? ' ' + kind : '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { t.className = ''; }, 2800);
+  }
+  function applyTheme() {
+    document.documentElement.setAttribute('data-theme', state.theme === 'light' ? 'light' : 'dark');
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', state.theme === 'light' ? '#f2f5f9' : '#0a0e13');
+  }
+
+  /* ---------- Events ---------- */
+  function bind() {
+    $('#paramForm').addEventListener('submit', e => { e.preventDefault(); calculate(); });
+
+    ['#n', '#extra', '#overage', '#rxnVol', '#refVol'].forEach(s => {
+      $(s).addEventListener('input', () => { readParams(); syncChips(); markStale(); updatePreview(); save(); });
+    });
+    $('#scale').addEventListener('change', () => {
+      readParams();
+      if (state.params.scale && !(state.params.refVol > 0)) { state.params.refVol = state.params.rxnVol; $('#refVol').value = isNaN(state.params.rxnVol) ? '' : state.params.rxnVol; }
+      $('#refField').classList.toggle('hidden', !state.params.scale);
+      markStale(); updatePreview(); save();
+    });
+    $('#decimals').addEventListener('change', () => {
+      state.params.decimals = Number($('#decimals').value) || 2;
+      updatePreview(); renderDisplay(); renderResults(); save();
+    });
+    $$('[data-step]').forEach(b => b.addEventListener('click', () => {
+      const inp = $('#' + b.dataset.step);
+      const min = b.dataset.step === 'n' ? 1 : 0;
+      const cur = parseNum(inp.value);
+      inp.value = Math.max(min, (isNaN(cur) ? min : Math.round(cur)) + Number(b.dataset.delta));
+      inp.dispatchEvent(new Event('input'));
+    }));
+    $('#ovChips').addEventListener('click', e => {
+      const c = e.target.closest('.chip'); if (!c) return;
+      $('#overage').value = c.dataset.ov;
+      $('#overage').dispatchEvent(new Event('input'));
+    });
+
+    const body = $('#editorBody');
+    body.addEventListener('input', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const r = getR(tr.dataset.id); if (!r) return;
+      const t = e.target;
+      if (t.classList.contains('f-name')) r.name = t.value;
+      else if (t.classList.contains('f-stock')) r.stock = t.value;
+      else if (t.classList.contains('f-final')) r.final = t.value;
+      else if (t.classList.contains('f-vol')) r.vol = t.value;
+      else return;
+      onDataChange();
+    });
+    body.addEventListener('change', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const r = getR(tr.dataset.id); if (!r) return;
+      if (e.target.classList.contains('f-mode')) {
+        if (e.target.value === 'fill' && state.reagents.some(x => x.mode === 'fill' && x.id !== r.id)) toast('Only one Fill (q.s.) reagent is allowed', 'error');
+        r.mode = e.target.value; renderEditor(); onDataChange();
+      } else if (e.target.classList.contains('f-mm')) {
+        r.inMM = e.target.checked; onDataChange();
+      }
+    });
+    body.addEventListener('click', e => {
+      const btn = e.target.closest('button'); if (!btn) return;
+      const tr = btn.closest('tr'); const idx = state.reagents.findIndex(r => r.id === tr.dataset.id);
+      if (idx < 0) return;
+      if (btn.classList.contains('act-del')) { state.reagents.splice(idx, 1); delete state.checks[tr.dataset.id]; }
+      else if (btn.classList.contains('act-up') && idx > 0) { const x = state.reagents.splice(idx, 1)[0]; state.reagents.splice(idx - 1, 0, x); }
+      else if (btn.classList.contains('act-down') && idx < state.reagents.length - 1) { const x = state.reagents.splice(idx, 1)[0]; state.reagents.splice(idx + 1, 0, x); }
+      else return;
+      renderEditor(); onDataChange();
+    });
+
+    $('#addRow').addEventListener('click', () => {
+      const r = { id: uid(), name: '', mode: 'vol', vol: '', stock: '', final: '', inMM: true };
+      const fillIdx = state.reagents.findIndex(x => isTemplate(x.name) && !x.inMM);
+      if (fillIdx >= 0) state.reagents.splice(fillIdx, 0, r); else state.reagents.push(r);
+      renderEditor(); onDataChange();
+      const inp = document.querySelector('tr[data-id="' + r.id + '"] .f-name');
+      if (inp) { inp.focus(); inp.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    });
+    $('#clearRows').addEventListener('click', () => {
+      if (!state.reagents.length) return;
+      if (!confirm('Remove all reagents from the sheet?')) return;
+      state.reagents = []; state.checks = {}; state.sheetInfo = null;
+      renderEditor(); renderSheetInfo(); onDataChange();
+    });
+    $('#exportSheet').addEventListener('click', () => {
+      if (!state.reagents.length) { toast('No reagents to save', 'error'); return; }
+      download('master-mix-sheet.csv', sheetCSV());
+    });
+
+    const dz = $('#dropzone'), fi = $('#fileInput');
+    fi.addEventListener('change', () => { handleFile(fi.files[0]); fi.value = ''; });
+    ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, e => { e.preventDefault(); dz.classList.add('drag'); }));
+    ['dragleave', 'dragend'].forEach(ev => dz.addEventListener(ev, () => dz.classList.remove('drag')));
+    dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('drag'); const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) handleFile(f); });
+    window.addEventListener('dragover', e => e.preventDefault());
+    window.addEventListener('drop', e => e.preventDefault());
+
+    $('#exampleBtn').addEventListener('click', () => {
+      state.reagents = exampleReagents();
+      state.params.rxnVol = 25; state.params.refVol = 25; state.params.scale = false;
+      state.sheetInfo = { name: 'Example PCR mix (25 µL)', count: state.reagents.length, mapping: null, warnings: [] };
+      state.checks = {}; state.lastCalc = null; state.stale = false;
+      writeParams(); renderEditor(); renderSheetInfo(); renderDisplay(); renderResults(); save();
+      toast('Example PCR mix loaded', 'ok');
+    });
+    $('#templateBtn').addEventListener('click', () => download('master-mix-template.csv', TEMPLATE_CSV));
+    $('#pasteBtn').addEventListener('click', () => {
+      const txt = $('#pasteArea').value;
+      if (!txt.trim()) { toast('Paste a table first', 'error'); return; }
+      try { applyImport(rowsToReagents(parseDelimited(txt)), 'Pasted table'); $('#pasteArea').value = ''; $('details.paste').open = false; }
+      catch (err) { renderSheetInfo(err.message); toast(err.message, 'error'); }
+    });
+
+    $('#resultsTbody').addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.matches('input[type=checkbox]')) return;
+      e.preventDefault();
+      toggleCheck(tr.dataset.id);
+    });
+    $('#resultsTbody').addEventListener('change', e => {
+      if (!e.target.matches('input[type=checkbox]')) return;
+      toggleCheck(e.target.closest('tr').dataset.id);
+    });
+    $('#resetChecks').addEventListener('click', () => { state.checks = {}; save(); renderResults(); toast('Checklist reset'); });
+
+    $('#copyBtn').addEventListener('click', async () => {
+      if (!state.lastCalc) return;
+      toast(await copyText(buildResultsTable('\t')) ? 'Results copied — paste into Excel or your notebook' : 'Copy failed', 'ok');
+    });
+    $('#csvBtn').addEventListener('click', () => {
+      if (!state.lastCalc) return;
+      const d = new Date(state.lastCalc.t);
+      const stamp = d.getFullYear() + String(d.getMonth() + 1).padStart(2, '0') + String(d.getDate()).padStart(2, '0') + '-' + String(d.getHours()).padStart(2, '0') + String(d.getMinutes()).padStart(2, '0');
+      download('master-mix-' + stamp + '.csv', buildResultsTable(','));
+    });
+    $('#printBtn').addEventListener('click', () => window.print());
+
+    $('#histList').addEventListener('click', e => {
+      const b = e.target.closest('.hist-item'); if (!b) return;
+      const h = state.history[Number(b.dataset.i)]; if (!h) return;
+      $('#n').value = h.n; $('#extra').value = h.extra; $('#overage').value = h.ov; $('#rxnVol').value = h.rxnVol;
+      syncChips();
+      calculate();
+    });
+    $('#clearHist').addEventListener('click', () => { state.history = []; save(); renderHistory(); });
+
+    $('#themeBtn').addEventListener('click', () => {
+      state.theme = state.theme === 'light' ? 'dark' : 'light';
+      applyTheme(); save();
+    });
+  }
+
+  /* ---------- Init ---------- */
+  load();
+  applyTheme();
+  writeParams();
+  renderEditor();
+  renderSheetInfo();
+  renderDisplay();
+  renderResults();
+  bind();
+})();
+
+</script>
+</body>
+</html>
+
