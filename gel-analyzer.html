@@ -1,0 +1,3331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gel Analysis Workbench</title>
+<meta name="description" content="Client-side agarose gel electrophoresis analysis: lane detection, densitometry, band detection, molecular-weight calibration and export.">
+<meta name="theme-color" content="#0a0d12">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><rect width='64' height='64' rx='12' fill='%230a0d12'/><g fill='%2338bdf8'><rect x='10' y='14' width='12' height='4' rx='1'/><rect x='26' y='22' width='12' height='4' rx='1'/><rect x='42' y='30' width='12' height='4' rx='1'/></g><g fill='%23fbbf24'><rect x='10' y='30' width='12' height='4' rx='1'/><rect x='26' y='40' width='12' height='4' rx='1'/><rect x='42' y='46' width='12' height='4' rx='1'/></g></svg>">
+<style>
+/* =========================================================================
+   Design tokens
+   ========================================================================= */
+:root{
+  --bg:#0a0d12; --bg-2:#0e131a; --panel:#111821; --panel-2:#161e29; --panel-3:#1c2633;
+  --border:#222d3b; --border-2:#2e3c4f;
+  --text:#e4ebf3; --muted:#93a4b8; --faint:#66788d;
+  --accent:#38bdf8; --accent-2:#0ea5e9; --accent-soft:rgba(56,189,248,.14); --accent-ink:#03202d;
+  --band:#fbbf24; --manual:#a3e635; --ladder:#c084fc; --front:#fb923c;
+  --danger:#f87171; --ok:#4ade80; --warn:#facc15;
+  --radius:10px; --radius-sm:7px;
+  --mono:ui-monospace,"JetBrains Mono","SF Mono","Cascadia Mono",Menlo,Consolas,monospace;
+  --sans:Inter,system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --sidebar-w:316px; --bottom-h:290px;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{
+  background:var(--bg);color:var(--text);font:13px/1.45 var(--sans);
+  display:grid;grid-template-rows:38px 52px minmax(0,1fr) 26px;overflow:hidden;
+  -webkit-font-smoothing:antialiased;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+.muted{color:var(--muted)} .faint{color:var(--faint)} .mono{font-family:var(--mono)}
+
+/* =========================================================================
+   Site navigation (shared with the Master Mix Calculator page)
+   ========================================================================= */
+.site-nav{background:#080b10;border-bottom:1px solid var(--border);min-width:0}
+.site-nav-inner{height:100%;padding:0 10px;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
+.site-nav a{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:12.5px;font-weight:600;white-space:nowrap;transition:color .12s,background .12s}
+.site-nav a:hover{color:var(--text);background:var(--panel-3)}
+.site-nav a[aria-current="page"]{color:var(--accent);background:var(--accent-soft)}
+.site-nav a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+
+/* =========================================================================
+   Top bar & workflow steps
+   ========================================================================= */
+.topbar{
+  display:flex;align-items:center;gap:16px;padding:0 14px;
+  background:linear-gradient(180deg,#121a25,#0e141c);border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:10px;min-width:0;width:calc(var(--sidebar-w) - 14px)}
+.brand svg{flex:none}
+.brand b{font-size:14.5px;letter-spacing:.01em}
+.brand small{display:block;color:var(--faint);font-size:11px;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.steps{display:flex;gap:4px;background:var(--bg-2);border:1px solid var(--border);border-radius:999px;padding:3px;min-width:0;overflow-x:auto;scrollbar-width:none}
+.steps::-webkit-scrollbar{display:none}
+.step{
+  flex:none;display:flex;align-items:center;gap:7px;border:0;background:transparent;color:var(--muted);
+  padding:5px 13px 5px 6px;border-radius:999px;cursor:pointer;white-space:nowrap;font-weight:500;
+}
+.step .num{
+  width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;
+  background:var(--panel-3);color:var(--muted);border:1px solid var(--border-2);
+}
+.step .badge{font:600 10.5px var(--mono);color:var(--faint);margin-left:2px}
+.step:hover{color:var(--text)}
+.step.active{background:var(--accent-soft);color:var(--accent)}
+.step.active .num{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.step.active .badge{color:var(--accent)}
+.top-actions{margin-left:auto;display:flex;gap:6px}
+
+/* =========================================================================
+   Workspace layout
+   ========================================================================= */
+.workspace{display:grid;grid-template-columns:var(--sidebar-w) minmax(0,1fr);min-height:0}
+.sidebar{background:var(--panel);border-right:1px solid var(--border);overflow-y:auto;padding:12px;min-height:0}
+.sidebar::-webkit-scrollbar,.scroll::-webkit-scrollbar{width:10px;height:10px}
+.sidebar::-webkit-scrollbar-thumb,.scroll::-webkit-scrollbar-thumb{background:var(--panel-3);border-radius:10px;border:2px solid var(--panel)}
+.panel{display:none} .panel.active{display:block}
+.group{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px;margin-bottom:10px}
+.group h3{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);margin:0 0 10px;display:flex;align-items:center;gap:6px}
+.group h3 .pill{margin-left:auto;text-transform:none;letter-spacing:0;font:600 11px var(--mono);color:var(--accent)}
+details.group summary{cursor:pointer;font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);list-style:none}
+details.group summary::before{content:"▸ ";color:var(--faint)}
+details.group[open] summary::before{content:"▾ "}
+details.group p{color:var(--muted);margin:8px 0 0;font-size:12px}
+.field{margin-bottom:11px}
+.field:last-child{margin-bottom:0}
+.field > label,.lbl{display:flex;justify-content:space-between;align-items:baseline;color:var(--muted);font-size:12px;margin-bottom:4px}
+.field output{font:600 11.5px var(--mono);color:var(--text)}
+.row{display:flex;align-items:center;gap:8px}
+.row-between{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.inline{display:grid;grid-template-columns:1fr 84px;align-items:center;gap:8px;margin-bottom:10px;color:var(--muted);font-size:12px}
+.hint{color:var(--faint);font-size:11.5px;margin-top:6px}
+.meta{color:var(--muted);font-size:12px;margin-top:8px;font-family:var(--mono)}
+.warn{color:var(--warn);font-size:12px;margin:8px 0 0;display:none;background:rgba(250,204,21,.08);border:1px solid rgba(250,204,21,.25);padding:7px 9px;border-radius:var(--radius-sm)}
+.warn.show{display:block}
+.tips{color:var(--faint);font-size:11.5px;padding:2px 4px 12px}
+.tips ul{margin:6px 0 0;padding-left:16px}
+.tips li{margin:3px 0}
+kbd{font:600 10.5px var(--mono);background:var(--panel-3);border:1px solid var(--border-2);border-bottom-width:2px;border-radius:4px;padding:0 4px;color:var(--text)}
+
+/* Controls */
+.btn{
+  background:var(--panel-3);border:1px solid var(--border-2);color:var(--text);border-radius:var(--radius-sm);
+  padding:7px 11px;cursor:pointer;white-space:nowrap;transition:background .12s,border-color .12s;
+}
+.btn:hover{background:#243142;border-color:#3a4c63}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:transparent;font-weight:600}
+.btn.primary:hover{background:#5ccafa}
+.btn.danger{color:var(--danger)}
+.btn.sm{padding:4px 9px;font-size:12px}
+.btn.block{width:100%;margin-top:8px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.btn-row .btn{flex:1}
+.icon-btn{background:var(--panel-3);border:1px solid var(--border-2);border-radius:6px;width:26px;height:26px;cursor:pointer;display:grid;place-items:center;padding:0;line-height:1}
+.icon-btn:hover{background:#243142}
+select,input[type=number],input[type=text],textarea{
+  background:var(--bg-2);border:1px solid var(--border-2);border-radius:var(--radius-sm);padding:6px 8px;width:100%;outline:none;
+}
+select:focus,input:focus,textarea:focus{border-color:var(--accent)}
+textarea{resize:vertical;font-family:var(--mono);font-size:12px}
+input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:18px;background:transparent;margin:0;cursor:pointer}
+input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:2px;background:var(--border-2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--accent);margin-top:-5px;border:2px solid var(--panel-2)}
+input[type=range]::-moz-range-track{height:4px;border-radius:2px;background:var(--border-2)}
+input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:var(--accent);border:2px solid var(--panel-2)}
+.check{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px;margin-top:8px;cursor:pointer}
+.check input{accent-color:var(--accent);width:14px;height:14px}
+.switch{position:relative;display:inline-block;width:34px;height:19px;flex:none}
+.switch input{opacity:0;width:0;height:0}
+.switch span{position:absolute;inset:0;background:var(--border-2);border-radius:999px;transition:.15s;cursor:pointer}
+.switch span::before{content:"";position:absolute;width:13px;height:13px;left:3px;top:3px;background:#cbd5e1;border-radius:50%;transition:.15s}
+.switch input:checked + span{background:var(--accent)}
+.switch input:checked + span::before{transform:translateX(15px);background:#fff}
+.seg{display:flex;background:var(--bg-2);border:1px solid var(--border-2);border-radius:8px;padding:2px;gap:2px}
+.seg button{flex:1;border:0;background:transparent;color:var(--muted);padding:5px 6px;border-radius:6px;cursor:pointer;font-size:12px;white-space:nowrap}
+.seg button.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.seg.sm button{padding:3px 8px;font-size:11.5px}
+.drop{
+  border:1.5px dashed var(--border-2);border-radius:var(--radius);padding:16px 12px;text-align:center;color:var(--muted);
+  cursor:pointer;transition:.15s;display:flex;flex-direction:column;align-items:center;gap:6px;
+}
+.drop:hover,.drop.over{border-color:var(--accent);color:var(--text);background:var(--accent-soft)}
+.drop b{color:var(--text)}
+
+/* Step 5 editor controls */
+.prop{display:grid;grid-template-columns:1fr 72px 40px;gap:6px;align-items:center;margin-bottom:9px;color:var(--muted);font-size:12px}
+.prop.two{grid-template-columns:1fr 112px}
+input[type=color]{width:40px;height:30px;padding:2px;border:1px solid var(--border-2);border-radius:6px;background:var(--bg-2);cursor:pointer}
+input[type=color]::-webkit-color-swatch-wrapper{padding:0}
+input[type=color]::-webkit-color-swatch{border:none;border-radius:4px}
+input[type=color]::-moz-color-swatch{border:none;border-radius:4px}
+input[type=color]:disabled{opacity:.35;cursor:not-allowed}
+.tools button{display:flex;align-items:center;justify-content:center;gap:6px}
+.tools kbd{font-size:9.5px;opacity:.8}
+.dash-seg{margin-bottom:10px}
+.dash-seg button{display:grid;place-items:center;padding:7px 4px}
+.sub{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);margin:12px 0 7px;font-weight:600}
+.sub:first-child{margin-top:0}
+
+/* Mini tables (sidebar) */
+.mini-wrap{max-height:250px;overflow:auto;margin-top:10px;border:1px solid var(--border);border-radius:var(--radius-sm)}
+table.mini{width:100%;border-collapse:collapse;font-size:11.5px}
+table.mini th{position:sticky;top:0;background:var(--panel-3);color:var(--muted);font-weight:600;text-align:left;padding:5px 6px}
+table.mini td{padding:3px 6px;border-top:1px solid var(--border);font-family:var(--mono)}
+table.mini select{padding:2px 4px;font-size:11.5px;font-family:var(--mono)}
+.err-ok{color:var(--ok)} .err-mid{color:var(--warn)} .err-bad{color:var(--danger)}
+#curveCanvas{width:100%;height:230px;display:block;background:var(--bg-2);border:1px solid var(--border);border-radius:var(--radius-sm);margin-top:8px}
+.fit-stats{font-family:var(--mono);font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.6}
+.fit-stats b{color:var(--text)}
+.fit-stats .r2{color:var(--ok);font-size:13px}
+
+/* =========================================================================
+   Center: canvas + bottom panel
+   ========================================================================= */
+.center{display:flex;flex-direction:column;min-width:0;min-height:0}
+.canvas-wrap{
+  position:relative;flex:1;min-height:140px;overflow:hidden;
+  background:
+    radial-gradient(circle at 50% 40%,rgba(56,189,248,.035),transparent 60%),
+    repeating-linear-gradient(0deg,rgba(255,255,255,.018) 0 1px,transparent 1px 32px),
+    repeating-linear-gradient(90deg,rgba(255,255,255,.018) 0 1px,transparent 1px 32px),
+    #070a0e;
+}
+#gelCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+.canvas-toolbar{
+  position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:4px;
+  background:rgba(17,24,33,.88);border:1px solid var(--border);border-radius:9px;padding:4px;backdrop-filter:blur(6px);
+}
+.canvas-toolbar .zoom{font:600 11.5px var(--mono);min-width:52px;text-align:center;color:var(--muted)}
+.mode-hint{
+  position:absolute;left:10px;bottom:10px;max-width:calc(100% - 20px);
+  background:rgba(17,24,33,.88);border:1px solid var(--border);border-radius:8px;padding:5px 10px;
+  color:var(--muted);font-size:11.5px;pointer-events:none;backdrop-filter:blur(6px)
+}
+.mode-hint b{color:var(--text);font-weight:600}
+.empty{
+  position:absolute;inset:0;display:grid;place-items:center;padding:24px;
+}
+.empty .box{
+  max-width:460px;width:100%;text-align:center;border:1.5px dashed var(--border-2);border-radius:16px;padding:34px 24px;
+  background:rgba(17,24,33,.7);cursor:pointer;transition:.15s
+}
+.empty .box:hover,.empty.over .box{border-color:var(--accent);background:rgba(56,189,248,.07)}
+.empty h2{margin:12px 0 6px;font-size:17px}
+.empty p{margin:0 0 16px;color:var(--muted)}
+.empty.hidden{display:none}
+.resizer{height:6px;cursor:ns-resize;background:var(--border);flex:none;position:relative}
+.resizer::after{content:"";position:absolute;left:50%;top:2px;width:36px;height:2px;margin-left:-18px;border-radius:2px;background:var(--border-2)}
+.resizer:hover,.resizer.drag{background:var(--accent-2)}
+.bottom{
+  height:var(--bottom-h);flex:none;display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);
+  background:var(--panel);min-height:0
+}
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0}
+.pane + .pane{border-left:1px solid var(--border)}
+.pane-head{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);min-height:39px;flex-wrap:wrap}
+.pane-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:600}
+.pane-head select{width:auto;padding:3px 6px;font-size:12px}
+.lane-nav{display:flex;align-items:center;gap:4px}
+.spacer{flex:1}
+.count{font:600 11px var(--mono);color:var(--accent)}
+.pane-body{position:relative;flex:1;min-height:0}
+#profileCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:crosshair}
+.legend{position:absolute;left:56px;top:6px;display:flex;gap:10px;font-size:10.5px;color:var(--muted);pointer-events:none}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.scroll{overflow:auto}
+table.results{width:100%;border-collapse:collapse;font-size:12px}
+table.results th{
+  position:sticky;top:0;z-index:1;background:var(--panel-3);color:var(--muted);font-weight:600;text-align:right;
+  padding:6px 9px;border-bottom:1px solid var(--border-2);white-space:nowrap
+}
+table.results th:first-child,table.results th:nth-child(2){text-align:left}
+table.results td{padding:4px 9px;border-bottom:1px solid var(--border);text-align:right;font-family:var(--mono);white-space:nowrap}
+table.results td:first-child,table.results td:nth-child(2){text-align:left}
+table.results tbody tr{cursor:pointer}
+table.results tbody tr:hover{background:rgba(255,255,255,.03)}
+table.results tbody tr.lane-sel td:first-child{box-shadow:inset 2px 0 0 var(--accent)}
+table.results tbody tr.sel{background:var(--accent-soft)}
+table.results tbody tr.ladder td{color:#dcc6fb}
+table.results .std{color:var(--ladder);font-weight:600}
+table.results .extrap{color:var(--warn)}
+.tag{display:inline-block;font:700 9.5px var(--sans);padding:0 4px;border-radius:4px;margin-left:5px;vertical-align:1px;background:rgba(192,132,252,.18);color:var(--ladder)}
+.tag.m{background:rgba(163,230,53,.15);color:var(--manual)}
+.empty-row td{text-align:center !important;color:var(--faint);padding:22px !important;font-family:var(--sans) !important}
+
+/* Status bar & toast */
+.statusbar{
+  display:flex;align-items:center;gap:18px;padding:0 12px;background:#0c1118;border-top:1px solid var(--border);
+  font:11px var(--mono);color:var(--faint);white-space:nowrap;overflow:hidden
+}
+.statusbar span b{color:var(--muted);font-weight:500}
+.statusbar .right{margin-left:auto}
+.toast{
+  position:fixed;left:50%;bottom:44px;transform:translateX(-50%) translateY(10px);opacity:0;pointer-events:none;
+  background:#1e2a39;border:1px solid var(--border-2);color:var(--text);padding:8px 14px;border-radius:9px;
+  box-shadow:0 10px 30px -10px rgba(0,0,0,.6);transition:.18s;z-index:50;max-width:min(560px,90vw);text-align:center
+}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.toast.error{border-color:rgba(248,113,113,.5)}
+.drag-veil{position:fixed;inset:0;background:rgba(56,189,248,.08);border:2px dashed var(--accent);z-index:40;display:none;pointer-events:none}
+.drag-veil.show{display:block}
+
+/* =========================================================================
+   Responsive: stack on narrow screens
+   ========================================================================= */
+@media (max-width:1360px){ .brand{width:auto} .brand small{display:none} }
+@media (max-width:980px){
+  body{grid-template-rows:auto auto auto auto;grid-template-columns:minmax(0,1fr);overflow-x:hidden;overflow-y:auto;height:auto}
+  .site-nav-inner{height:40px}
+  .topbar{flex-wrap:wrap;padding:8px 12px;gap:8px;min-width:0}
+  .brand{width:auto;min-width:0}
+  .steps{order:3;width:100%;min-width:0;overflow-x:auto;scrollbar-width:none}
+  .step{flex:none}
+  .workspace{grid-template-columns:minmax(0,1fr)}
+  .sidebar{min-width:0}
+  .sidebar{border-right:0;border-bottom:1px solid var(--border);max-height:none}
+  .canvas-wrap{flex:none;height:62vh}
+  .bottom{height:auto;grid-template-columns:minmax(0,1fr)}
+  .pane{min-height:280px}
+  .pane + .pane{border-left:0;border-top:1px solid var(--border)}
+  .resizer{display:none}
+  .statusbar{height:26px}
+}
+</style>
+</head>
+<body>
+
+<nav class="site-nav" aria-label="Tools"><div class="site-nav-inner">
+  <a href="./index.html">Home</a>
+  <a href="./calculator.html">Lab Calculator</a>
+  <a href="./field-collector.html">Field Data Collector</a>
+  <a href="./gel-analyzer.html" aria-current="page">Gel Analyzer</a>
+</div></nav>
+
+<!-- ======================================================================
+     TOP BAR
+     ====================================================================== -->
+<header class="topbar">
+  <div class="brand">
+    <svg width="28" height="28" viewBox="0 0 64 64" aria-hidden="true"><rect width="64" height="64" rx="12" fill="#17202c"/><g fill="#38bdf8"><rect x="10" y="14" width="12" height="4" rx="1"/><rect x="26" y="22" width="12" height="4" rx="1"/><rect x="42" y="30" width="12" height="4" rx="1"/></g><g fill="#fbbf24"><rect x="10" y="30" width="12" height="4" rx="1"/><rect x="26" y="40" width="12" height="4" rx="1"/><rect x="42" y="46" width="12" height="4" rx="1"/></g></svg>
+    <div><b>Gel Analysis Workbench</b><small>Agarose gel densitometry &amp; DNA sizing</small></div>
+  </div>
+  <nav class="steps" role="tablist" aria-label="Workflow steps">
+    <button class="step active" data-step="1" role="tab"><span class="num">1</span>Image</button>
+    <button class="step" data-step="2" role="tab"><span class="num">2</span>Lanes<span class="badge" id="badge2"></span></button>
+    <button class="step" data-step="3" role="tab"><span class="num">3</span>Bands<span class="badge" id="badge3"></span></button>
+    <button class="step" data-step="4" role="tab"><span class="num">4</span>Calibration &amp; Results<span class="badge" id="badge4"></span></button>
+    <button class="step" data-step="5" role="tab"><span class="num">5</span>Annotate &amp; Export</button>
+  </nav>
+  <div class="top-actions">
+    <button class="btn sm" id="btnExportPng" disabled title="Export the annotated figure with the settings in step 5">Export image</button>
+    <button class="btn sm" id="btnExportCsv" disabled>Export CSV</button>
+  </div>
+</header>
+
+<main class="workspace">
+  <!-- ====================================================================
+       SIDEBAR (one panel per workflow step)
+       ==================================================================== -->
+  <aside class="sidebar" id="sidebar">
+
+    <!-- STEP 1: IMAGE -->
+    <section class="panel active" data-panel="1">
+      <div class="group">
+        <h3>Load gel image</h3>
+        <div class="drop" id="dropSmall" tabindex="0" role="button" aria-label="Choose an image file">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/></svg>
+          <div><b>Drop PNG / JPEG / TIFF</b> or click to browse</div>
+          <div class="faint" style="font-size:11px">Full resolution up to 50 MP · 8/16-bit TIFF · or paste (<kbd>Ctrl</kbd>+<kbd>V</kbd>)</div>
+        </div>
+        <button class="btn block" id="btnDemo">Load demo gel</button>
+        <div class="meta" id="imgMeta">No image loaded</div>
+      </div>
+
+      <div class="group">
+        <h3>Display</h3>
+        <div class="row-between">
+          <span>Invert colors</span>
+          <label class="switch"><input type="checkbox" id="invert"><span></span></label>
+        </div>
+        <div class="hint" style="margin-bottom:12px">Switches between a dark-background (UV fluorescence) and a light-background (colorimetric) view. Display only; analysis is unaffected.</div>
+        <div class="field"><label for="brightness">Brightness <output id="brightnessOut">0</output></label><input type="range" id="brightness" min="-100" max="100" value="0"></div>
+        <div class="field"><label for="contrast">Contrast <output id="contrastOut">0</output></label><input type="range" id="contrast" min="-100" max="100" value="0"></div>
+        <div class="field"><label for="gamma">Gamma <output id="gammaOut">1.00</output></label><input type="range" id="gamma" min="0.3" max="3" step="0.05" value="1"></div>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn sm" id="btnAutoLevels" title="Stretch the display between the darkest and brightest pixels">Auto levels</button>
+          <button class="btn sm" id="btnResetDisplay">Reset display</button>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>Band appearance (for analysis)</h3>
+        <div class="seg" id="polaritySeg">
+          <button data-v="bright" class="on">Bright on dark</button>
+          <button data-v="dark">Dark on light</button>
+        </div>
+        <div class="hint" id="polarityHint">Auto-detected from the image background when an image is loaded.</div>
+      </div>
+
+      <div class="group">
+        <h3>Orientation</h3>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn sm" id="rotL" title="Rotate 90° counter-clockwise">⟲ 90°</button>
+          <button class="btn sm" id="rotR" title="Rotate 90° clockwise">⟳ 90°</button>
+          <button class="btn sm" id="flipH" title="Flip horizontally">⇋ Flip</button>
+        </div>
+        <div class="field" style="margin-top:12px"><label for="fineRot">Fine rotation <output id="fineRotOut">0.0°</output></label><input type="range" id="fineRot" min="-10" max="10" step="0.1" value="0"></div>
+        <div class="hint">Straighten a tilted gel so lanes run vertically. Applied when you release the slider.</div>
+      </div>
+      <button class="btn primary block" data-goto="2">Continue to Lanes →</button>
+    </section>
+
+    <!-- STEP 2: LANES -->
+    <section class="panel" data-panel="2">
+      <div class="group">
+        <h3>Lane grid</h3>
+        <div class="inline"><label for="laneCount">Number of lanes</label><input type="number" id="laneCount" min="1" max="80" value="10"></div>
+        <div class="btn-row" style="margin-top:0">
+          <button class="btn" id="btnGrid">Generate grid</button>
+          <button class="btn primary" id="btnAutoLanes">Auto-detect lanes</button>
+        </div>
+        <label class="check"><input type="checkbox" id="forceCount"> Auto-detect exactly this many lanes</label>
+        <div class="field" style="margin-top:12px"><label for="globalWidth">Width of all lanes <output id="globalWidthOut">—</output></label><input type="range" id="globalWidth" min="4" max="300" value="40"></div>
+      </div>
+
+      <div class="group">
+        <h3>Migration baselines</h3>
+        <div class="field"><label for="wellY">Well line (start) <output id="wellYOut">—</output></label><input type="range" id="wellY" min="0" max="100" value="0"></div>
+        <div class="field"><label for="frontY">Dye-front line (end) <output id="frontYOut">—</output></label><input type="range" id="frontY" min="0" max="100" value="100"></div>
+        <div class="hint">Or drag the dashed lines directly on the gel. Rf = distance from well ÷ distance to the dye front, measured per lane.</div>
+      </div>
+
+      <div class="group">
+        <h3>Selected lane <span class="pill" id="selLaneName">—</span></h3>
+        <div class="field"><label for="laneWidth">Lane width <output id="laneWidthOut">—</output></label><input type="range" id="laneWidth" min="3" max="300" value="40"></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="isLadder"> Ladder / marker lane</label>
+        <div class="btn-row">
+          <button class="btn sm" id="btnAddLane">+ Add lane</button>
+          <button class="btn sm" id="btnStraighten" title="Remove slant and smile offsets">Straighten</button>
+          <button class="btn sm danger" id="btnDelLane">Delete</button>
+        </div>
+      </div>
+
+      <div class="tips">
+        <b class="muted">Editing on the gel</b>
+        <ul>
+          <li>Drag a lane body to move it; drag its left/right edge to resize.</li>
+          <li>Drag the <b style="color:var(--accent)">●</b> top/bottom handles to fix smiling or a slanted lane.</li>
+          <li>Drag the dashed <b style="color:var(--accent)">well</b> and <b style="color:var(--front)">dye-front</b> lines.</li>
+          <li>Scroll to zoom, drag empty space to pan, <kbd>F</kbd> to fit, <kbd>←</kbd>/<kbd>→</kbd> to change lanes, <kbd>Del</kbd> to delete a lane.</li>
+        </ul>
+      </div>
+      <button class="btn primary block" data-goto="3">Continue to Bands →</button>
+    </section>
+
+    <!-- STEP 3: BANDS -->
+    <section class="panel" data-panel="3">
+      <div class="group">
+        <h3>Baseline subtraction</h3>
+        <div class="field">
+          <label for="baselineMethod">Method</label>
+          <select id="baselineMethod">
+            <option value="rollingball">Rolling ball</option>
+            <option value="rubberband">Rubber band (lower convex hull)</option>
+            <option value="linear">Linear (lane end points)</option>
+            <option value="none">None</option>
+          </select>
+        </div>
+        <div class="field" id="ballField"><label for="ballRadius">Rolling-ball radius <output id="ballRadiusOut">40 px</output></label><input type="range" id="ballRadius" min="5" max="300" value="40"></div>
+        <div class="field"><label for="smoothing">Smoothing (Gaussian σ) <output id="smoothingOut">1.5 px</output></label><input type="range" id="smoothing" min="0" max="8" step="0.5" value="1.5"></div>
+      </div>
+
+      <div class="group">
+        <h3>Peak detection</h3>
+        <div class="field"><label for="prominence">Peak prominence <output id="prominenceOut">4%</output></label><input type="range" id="prominence" min="0.5" max="40" step="0.5" value="4"></div>
+        <div class="field"><label for="noise">Noise tolerance (min. height) <output id="noiseOut">3%</output></label><input type="range" id="noise" min="0" max="40" step="0.5" value="3"></div>
+        <div class="field"><label for="minDistance">Min. band separation <output id="minDistanceOut">6 px</output></label><input type="range" id="minDistance" min="2" max="40" value="6"></div>
+        <div class="field"><label for="edgeExclude">Ignore lane ends <output id="edgeExcludeOut">2%</output></label><input type="range" id="edgeExclude" min="0" max="15" step="0.5" value="2"></div>
+        <div class="hint">Thresholds are a percentage of the strongest baseline-corrected signal on the gel, so empty lanes stay empty.</div>
+        <div class="btn-row">
+          <button class="btn sm" id="btnClearLane">Reset lane edits</button>
+          <button class="btn sm" id="btnClearAll">Re-detect all</button>
+        </div>
+        <div class="meta" id="bandStats"></div>
+      </div>
+
+      <div class="tips">
+        <b class="muted">Manual correction</b>
+        <ul>
+          <li><b>Click</b> inside the selected lane (or on the electropherogram) to add a missed band. It snaps to the nearest local maximum.</li>
+          <li><b>Right-click</b> a band to delete a false positive.</li>
+          <li><b>Drag</b> a band line to reposition it. Click another lane to select it.</li>
+        </ul>
+        <span class="legend-inline"><b style="color:var(--band)">━</b> auto &nbsp; <b style="color:var(--manual)">━</b> manual &nbsp; <b style="color:var(--ladder)">━</b> ladder</span>
+      </div>
+      <button class="btn primary block" data-goto="4">Continue to Calibration →</button>
+    </section>
+
+    <!-- STEP 4: CALIBRATION & RESULTS -->
+    <section class="panel" data-panel="4">
+      <div class="group">
+        <h3>Ladder / marker</h3>
+        <div class="field"><label for="ladderSelect">Ladder lane</label><select id="ladderSelect"></select></div>
+        <div class="field"><label for="ladderPreset">Preset</label><select id="ladderPreset"></select></div>
+        <div class="field"><label for="ladderSizes">Known sizes (bp), largest → smallest</label><textarea id="ladderSizes" rows="3" spellcheck="false"></textarea></div>
+        <div class="inline" style="margin-bottom:0"><label for="ladderOffset">Skip top N sizes (unresolved bands)</label><input type="number" id="ladderOffset" min="0" max="50" value="0"></div>
+        <div class="btn-row"><button class="btn sm" id="btnAutoAssign">Auto-assign (top → bottom)</button></div>
+        <div class="warn" id="calibWarn"></div>
+        <div class="mini-wrap">
+          <table class="mini">
+            <thead><tr><th>#</th><th>Rf</th><th>Assigned</th><th>Fitted</th><th>Err</th></tr></thead>
+            <tbody id="ladderBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="group">
+        <h3>Standard curve</h3>
+        <div class="field">
+          <label for="fitModel">Regression of log₁₀(bp) on Rf</label>
+          <select id="fitModel">
+            <option value="linear">Log-linear (1st order)</option>
+            <option value="quadratic">Polynomial, 2nd order</option>
+            <option value="cubic">Polynomial, 3rd order</option>
+            <option value="p2p">Point-to-point (log interpolation)</option>
+          </select>
+        </div>
+        <canvas id="curveCanvas"></canvas>
+        <div class="fit-stats" id="fitStats">No calibration yet.</div>
+      </div>
+
+      <details class="group">
+        <summary>Method notes</summary>
+        <p>Each lane profile is the mean signal across the lane width, sampled along the lane's own centre line from well to dye front, so slanted and smiling lanes are measured correctly.</p>
+        <p>Ladder bands are matched to the known sizes from the top (largest) down. The standard curve regresses log₁₀(size) on Rf. Sizes outside the ladder's Rf range are extrapolated and marked with “~”.</p>
+        <p>Integrated area is the baseline-corrected profile summed between band boundaries. Boundaries are where the signal falls to 3% of the peak, or the valley between two neighbouring bands. It is a relative quantity, in intensity × px.</p>
+      </details>
+      <button class="btn primary block" data-goto="5">Continue to Annotate &amp; Export →</button>
+    </section>
+
+    <!-- STEP 5: ANNOTATE & EXPORT -->
+    <section class="panel" data-panel="5" id="panel5">
+      <div class="group">
+        <h3>Tools</h3>
+        <div class="seg tools" id="toolSeg">
+          <button data-tool="select" class="on" title="Select and move (V)">↖ Select <kbd>V</kbd></button>
+          <button data-tool="line" title="Draw a line (L)">╱ Line <kbd>L</kbd></button>
+          <button data-tool="text" title="Add text (T)">T Text <kbd>T</kbd></button>
+        </div>
+        <div class="btn-row">
+          <button class="btn sm" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
+          <button class="btn sm" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
+        </div>
+        <div class="hint">Drag any label, line or text to move it. Hold <kbd>Shift</kbd> to move along one axis or keep lines at 45° steps. Arrow keys nudge the selection.</div>
+      </div>
+
+      <div class="group">
+        <h3>Selection <span class="pill" id="selKind"></span></h3>
+        <div id="annotInspector"></div>
+      </div>
+
+      <div class="group">
+        <h3>Label style (all labels)</h3>
+        <div class="prop two"><span>Font</span><select id="stFont"><option value="sans">Sans-serif</option><option value="serif">Serif</option><option value="mono">Monospace</option></select></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stBold"> Bold</label>
+        <label class="check" style="margin-bottom:10px"><input type="checkbox" id="stHalo"> Outline (halo) for legibility</label>
+        <div class="sub">Size labels</div>
+        <div class="prop"><span>Font size (px) / colour</span><input type="number" id="stLabelSize" min="1" max="2000" step="1"><input type="color" id="stLabelColor"></div>
+        <div class="sub">Lane labels</div>
+        <div class="prop"><span>Font size (px) / colour</span><input type="number" id="stLaneSize" min="1" max="2000" step="1"><input type="color" id="stLaneColor"></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stLaneAuto"> Colour by lane type (ladder purple, samples blue)</label>
+        <div class="sub">Band lines</div>
+        <div class="prop"><span>Width (px) / colour</span><input type="number" id="stBandWidth" min="0.5" max="200" step="0.5"><input type="color" id="stBandColor"></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="stBandAuto"> Colour by lane type</label>
+        <div class="btn-row">
+          <button class="btn sm" id="btnResetLabelPos">Reset positions</button>
+          <button class="btn sm" id="btnShowHidden">Show hidden</button>
+          <button class="btn sm" id="btnResetStyle">Default style</button>
+        </div>
+        <div class="hint">Sizes are in pixels of the exported image (at native resolution).</div>
+      </div>
+
+      <div class="group">
+        <h3>Layers</h3>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="exLanes" checked> Lane outlines</label>
+        <label class="check"><input type="checkbox" id="exNums" checked> Lane labels</label>
+        <label class="check"><input type="checkbox" id="exBands" checked> Band lines</label>
+        <label class="check"><input type="checkbox" id="exLabels" checked> Size labels above bands</label>
+        <label class="check"><input type="checkbox" id="exCaption" checked> Caption strip below the gel</label>
+        <div class="field" style="margin-top:10px"><label for="captionText">Caption text</label><input type="text" id="captionText" placeholder="Automatic calibration summary"></div>
+      </div>
+
+      <div class="group">
+        <h3>Export image</h3>
+        <div class="field"><label for="exFormat">Format</label>
+          <select id="exFormat">
+            <option value="png">PNG (lossless, recommended)</option>
+            <option value="tiff">TIFF (uncompressed, for journals)</option>
+            <option value="jpeg">JPEG (maximum quality)</option>
+          </select></div>
+        <div class="field"><label for="exScale">Resolution</label><select id="exScale"></select></div>
+        <div class="field"><label for="exDpi">Print resolution (DPI metadata)</label>
+          <select id="exDpi"><option value="72">72 dpi (screen)</option><option value="150">150 dpi</option><option value="300" selected>300 dpi (publication)</option><option value="600">600 dpi</option><option value="1200">1200 dpi</option></select></div>
+        <label class="check" style="margin-top:0"><input type="checkbox" id="exSmooth" checked> Smooth the gel image when upscaling</label>
+        <div class="meta" id="exInfo"></div>
+        <div class="btn-row">
+          <button class="btn primary" id="btnExportPng2">Export image</button>
+          <button class="btn" id="btnExportCsv2">Results CSV</button>
+        </div>
+        <div class="hint">“Native” exports every pixel of your upload unchanged; 2–4× also renders labels and lines more finely for print.</div>
+      </div>
+    </section>
+  </aside>
+
+  <!-- ====================================================================
+       CENTER: gel canvas + bottom densitometry / results panel
+       ==================================================================== -->
+  <div class="center">
+    <div class="canvas-wrap" id="canvasWrap">
+      <canvas id="gelCanvas"></canvas>
+      <div class="empty" id="emptyState">
+        <div class="box" id="emptyBox" role="button" tabindex="0">
+          <svg width="46" height="46" viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="10" fill="none" stroke="#2e3c4f" stroke-width="2"/><g fill="#38bdf8"><rect x="12" y="14" width="10" height="3" rx="1"/><rect x="27" y="22" width="10" height="3" rx="1"/><rect x="42" y="30" width="10" height="3" rx="1"/></g><g fill="#fbbf24"><rect x="12" y="32" width="10" height="3" rx="1"/><rect x="27" y="42" width="10" height="3" rx="1"/><rect x="42" y="47" width="10" height="3" rx="1"/></g></svg>
+          <h2>Drop a gel image here</h2>
+          <p>PNG, JPEG or TIFF (8/16-bit), at full resolution. Click to browse. Everything runs locally in your browser; nothing is uploaded.</p>
+          <button class="btn primary" id="btnDemo2" type="button">Try the demo gel</button>
+        </div>
+      </div>
+      <div class="canvas-toolbar">
+        <button class="icon-btn" id="zoomOut" title="Zoom out (−)">−</button>
+        <span class="zoom" id="zoomLabel">100%</span>
+        <button class="icon-btn" id="zoomIn" title="Zoom in (+)">+</button>
+        <button class="btn sm" id="zoomFit" title="Fit to view (F)">Fit</button>
+        <button class="btn sm" id="zoom100" title="Actual pixels (1)">1:1</button>
+      </div>
+      <div class="mode-hint" id="modeHint"></div>
+    </div>
+    <div class="resizer" id="resizer" title="Drag to resize"></div>
+    <div class="bottom" id="bottom">
+      <div class="pane">
+        <div class="pane-head">
+          <span class="pane-title">Electropherogram</span>
+          <div class="lane-nav">
+            <button class="icon-btn" id="lanePrev" title="Previous lane">‹</button>
+            <select id="laneSelect" aria-label="Lane"></select>
+            <button class="icon-btn" id="laneNext" title="Next lane">›</button>
+          </div>
+          <div class="seg sm" id="profileModeSeg">
+            <button data-v="raw" class="on">Raw + baseline</button>
+            <button data-v="corr">Corrected</button>
+          </div>
+          <span class="spacer"></span>
+          <button class="btn sm" id="btnProfileCsv" title="Export this lane's profile">Profile CSV</button>
+        </div>
+        <div class="pane-body">
+          <canvas id="profileCanvas"></canvas>
+          <div class="legend" id="profileLegend"></div>
+        </div>
+      </div>
+      <div class="pane">
+        <div class="pane-head">
+          <span class="pane-title">Band table</span>
+          <span class="count" id="tableCount"></span>
+          <span class="spacer"></span>
+          <button class="btn sm" id="btnExportCsv3">Export CSV</button>
+        </div>
+        <div class="pane-body scroll">
+          <table class="results">
+            <thead><tr><th>Lane</th><th>Band</th><th title="Migration distance from the well">Dist (px)</th><th title="Relative migration distance">Rf</th><th>Size (bp)</th><th>Height</th><th title="Integrated peak area (raw relative quantity)">Area</th><th>% lane</th></tr></thead>
+            <tbody id="resultsBody"><tr class="empty-row"><td colspan="8">Load an image to begin.</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <span>x <b id="stX">—</b></span>
+  <span>y <b id="stY">—</b></span>
+  <span>I <b id="stI">—</b></span>
+  <span id="stImg">no image</span>
+  <span class="right" id="stHint">Ready</span>
+</footer>
+
+<input type="file" id="fileInput" accept="image/png,image/jpeg,image/tiff,image/webp,image/bmp,image/gif,.tif,.tiff" hidden>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="drag-veil" id="dragVeil"></div>
+
+<script>
+'use strict';
+/* ==========================================================================
+   Gel Analysis Workbench: single-file client-side gel analyzer.
+
+   Module map (all in this script):
+     1. Utilities & constants
+     2. Application state
+     3. Signal processing (smoothing, baselines, peak finding, regression)
+     4. Image loading, orientation, display rendering, demo-gel generator
+     5. View transform (zoom / pan)
+     6. Lane geometry, grid generation and auto-detection
+     7. Densitometry & band detection (incl. manual overrides)
+     8. Molecular-weight calibration
+     9. Rendering (gel overlays, electropherogram, standard curve)
+    10. UI panels, tables & bindings
+    11. Pointer / keyboard interaction
+    12. Export (PNG, CSV)
+    13. Boot
+   ========================================================================== */
+
+/* ==========================================================================
+   1. UTILITIES & CONSTANTS
+   ========================================================================== */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+function median(arr) {
+  if (!arr.length) return 0;
+  const s = Array.from(arr).sort((a, b) => a - b), m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+function arrMax(a) { let m = -Infinity; for (let i = 0; i < a.length; i++) if (a[i] > m) m = a[i]; return m; }
+function arrMin(a) { let m = Infinity; for (let i = 0; i < a.length; i++) if (a[i] < m) m = a[i]; return m; }
+/** Round to 3 significant figures (avoids implying false precision in sizes). */
+function sig3(v) {
+  if (!isFinite(v) || v <= 0) return v;
+  const p = Math.pow(10, Math.floor(Math.log10(v)) - 2);
+  return Math.round(v / p) * p;
+}
+function fmtBp(v) {
+  if (!(v > 0)) return '—';
+  if (v >= 10000) return (v / 1000).toFixed(1) + ' kb';
+  return Math.round(sig3(v)) + ' bp';
+}
+function hexA(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+function niceTicks(min, max, count = 5) {
+  const span = max - min;
+  if (!(span > 0)) return [min];
+  const raw = span / count, mag = Math.pow(10, Math.floor(Math.log10(raw))), norm = raw / mag;
+  const step = (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
+  const out = [];
+  for (let v = Math.ceil(min / step) * step; v <= max + step * 1e-6; v += step) out.push(+v.toFixed(10));
+  return out;
+}
+function debounce(fn, ms) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
+function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+/** Overlay colours (kept in sync with the CSS tokens). */
+const COLORS = {
+  lane: '#38bdf8', ladder: '#c084fc', band: '#fbbf24', manual: '#a3e635',
+  front: '#fb923c', well: '#38bdf8', text: '#e4ebf3', muted: '#93a4b8', grid: 'rgba(148,163,184,.13)',
+};
+
+/** Common DNA ladder presets (bp, largest → smallest). Verify against your lot's datasheet. */
+const LADDER_PRESETS = {
+  'generuler-1kb':       { name: 'GeneRuler 1 kb DNA Ladder', sizes: [10000, 8000, 6000, 5000, 4000, 3500, 3000, 2500, 2000, 1500, 1000, 750, 500, 250] },
+  'generuler-1kb-plus':  { name: 'GeneRuler 1 kb Plus DNA Ladder', sizes: [20000, 10000, 7000, 5000, 4000, 3000, 2000, 1500, 1000, 700, 500, 400, 300, 200, 75] },
+  'generuler-100bp':     { name: 'GeneRuler 100 bp DNA Ladder', sizes: [1000, 900, 800, 700, 600, 500, 400, 300, 200, 100] },
+  'generuler-100bp-plus':{ name: 'GeneRuler 100 bp Plus DNA Ladder', sizes: [3000, 2000, 1500, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100] },
+  'generuler-50bp':      { name: 'GeneRuler 50 bp DNA Ladder', sizes: [1000, 900, 800, 700, 600, 500, 400, 300, 250, 200, 150, 100, 50] },
+  'ladder-100bp':        { name: '100 bp ladder (100–1,500 bp)', sizes: [1500, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100] },
+  'ladder-1kb':          { name: '1 kb ladder (0.5–10 kb)', sizes: [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1000, 500] },
+  'ladder-1kb-plus':     { name: '1 kb Plus ladder (0.1–10 kb)', sizes: [10000, 8000, 6000, 5000, 4000, 3000, 2000, 1500, 1200, 1000, 900, 800, 700, 600, 500, 400, 300, 200, 100] },
+  'lambda-hindiii':      { name: 'λ DNA / HindIII', sizes: [23130, 9416, 6557, 4361, 2322, 2027, 564, 125] },
+  'custom':              { name: 'Custom (edit sizes below)', sizes: null },
+};
+
+const MAX_PIXELS = 50e6, MAX_SIDE = 16384;   // working-image limits (larger uploads are downscaled to fit)
+
+/* ==========================================================================
+   2. APPLICATION STATE
+   ========================================================================== */
+const state = {
+  base: null,           // full-resolution source (see loadFile), after 90° rotations / flips
+  img: null,            // working image: base, or a fine-rotated copy { width, height, gray, rgba, bits }
+  fileName: 'gel',
+  bgValue: 0,           // median intensity (fills corners after fine rotation)
+  fineRotation: 0,
+  display: { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 },
+  polarity: 'bright',   // 'bright' = bright bands on dark bg; 'dark' = dark bands on light bg
+  dispCanvas: null, dispCtx: null, dispData: null,
+  view: { scale: 1, ox: 0, oy: 0 },
+  wellY: 0, frontY: 0,
+  lanes: [],            // see makeLane()
+  sel: null,            // selected lane object
+  selBand: null,        // { lane, rf }
+  nextLaneId: 1,
+  step: 1,
+  detect: { baseline: 'rollingball', ballRadius: 40, smoothing: 1.5, prominence: 4, noise: 3, minDistance: 6, edgeExclude: 2 },
+  calib: {
+    preset: 'generuler-1kb', sizes: LADDER_PRESETS['generuler-1kb'].sizes.slice(), offset: 0,
+    model: 'linear', assignMode: 'auto', fit: null, points: [], warning: '',
+  },
+  refMax: 1,            // strongest corrected signal on the gel (threshold reference)
+  hover: null,          // { lane, idx } from electropherogram hover
+  profileMode: 'raw',
+  annot: {              // step 5 figure editor (positions/sizes in image px)
+    tool: 'select', sel: null, draft: null, items: [], nextId: 1, style: null, caption: '',
+    layers: { lanes: true, nums: true, bands: true, labels: true, caption: true },
+    lineStyle: { dash: 'dashed', color: '#ffffff', width: 2 }, textStyle: { size: 14, color: '#ffffff', bold: true },
+    exp: { format: 'png', scale: 1, dpi: 300, smooth: true },
+    undo: [], redo: [],
+  },
+};
+
+/* ==========================================================================
+   3. SIGNAL PROCESSING
+   ========================================================================== */
+
+/** Gaussian smoothing with edge renormalisation. sigma ≤ 0.25 returns a copy. */
+function gaussianSmooth(src, sigma) {
+  const n = src.length, out = new Float32Array(n);
+  if (!(sigma > 0.25)) { out.set(src); return out; }
+  const r = Math.ceil(sigma * 3), k = new Float32Array(2 * r + 1);
+  for (let i = -r; i <= r; i++) k[i + r] = Math.exp(-(i * i) / (2 * sigma * sigma));
+  for (let i = 0; i < n; i++) {
+    let acc = 0, w = 0;
+    const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
+    for (let j = lo; j <= hi; j++) { const kw = k[j - i + r]; acc += src[j] * kw; w += kw; }
+    out[i] = acc / w;
+  }
+  return out;
+}
+
+/** Background (baseline) estimators for a 1-D profile. */
+const Baseline = {
+  none(y) { return new Float32Array(y.length); },
+
+  /** Straight line between the minima found in the first and last 4% of the lane. */
+  linear(y) {
+    const n = y.length, m = Math.max(2, Math.round(n * 0.04)), out = new Float32Array(n);
+    let a = Infinity, b = Infinity, ia = 0, ib = n - 1;
+    for (let i = 0; i < m; i++) if (y[i] < a) { a = y[i]; ia = i; }
+    for (let i = n - m; i < n; i++) if (y[i] < b) { b = y[i]; ib = i; }
+    for (let i = 0; i < n; i++) out[i] = Math.min(y[i], a + (b - a) * (i - ia) / Math.max(1, ib - ia));
+    return out;
+  },
+
+  /** Lower convex hull ("rubber band" stretched underneath the profile). */
+  rubberband(y) {
+    const n = y.length, hull = [];
+    for (let i = 0; i < n; i++) {
+      while (hull.length >= 2) {
+        const o = hull[hull.length - 2], a = hull[hull.length - 1];
+        const cross = (a - o) * (y[i] - y[o]) - (y[a] - y[o]) * (i - o);
+        if (cross <= 0) hull.pop(); else break;
+      }
+      hull.push(i);
+    }
+    const out = new Float32Array(n);
+    for (let h = 0; h < hull.length - 1; h++) {
+      const i0 = hull[h], i1 = hull[h + 1];
+      for (let i = i0; i <= i1; i++) out[i] = y[i0] + (y[i1] - y[i0]) * (i - i0) / Math.max(1, i1 - i0);
+    }
+    if (hull.length === 1) out.fill(y[hull[0]]);
+    return out;
+  },
+
+  /**
+   * Rolling-ball background (Sternberg): grayscale opening of the profile with a
+   * semicircular structuring element of radius r (px and intensity share units).
+   */
+  rollingball(y, r) {
+    const n = y.length; r = Math.max(1, Math.round(r));
+    const s = new Float32Array(2 * r + 1);
+    for (let k = -r; k <= r; k++) s[k + r] = Math.sqrt(r * r - k * k);
+    const c = new Float32Array(n), out = new Float32Array(n);
+    for (let i = 0; i < n; i++) {           // erosion: highest ball centre under the curve
+      let m = Infinity; const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
+      for (let j = lo; j <= hi; j++) { const v = y[j] - s[j - i + r]; if (v < m) m = v; }
+      c[i] = m;
+    }
+    for (let i = 0; i < n; i++) {           // dilation: upper envelope of all ball positions
+      let m = -Infinity; const lo = Math.max(0, i - r), hi = Math.min(n - 1, i + r);
+      for (let j = lo; j <= hi; j++) { const v = c[j] + s[i - j + r]; if (v > m) m = v; }
+      out[i] = Math.min(m, y[i]);
+    }
+    return out;
+  },
+};
+
+/**
+ * Local-maximum peak finder with topographic prominence (as in scipy.signal.find_peaks).
+ * Returns peaks sorted by index: [{ i, h, prom }].
+ */
+function findPeaks(y, { minProm = 0, minHeight = 0, minDist = 1, lo = 1, hi = y.length - 2 } = {}) {
+  const n = y.length, cand = [];
+  let i = Math.max(1, lo);
+  while (i <= Math.min(n - 2, hi)) {
+    if (y[i] > y[i - 1]) {
+      let j = i;
+      while (j + 1 < n && y[j + 1] === y[i]) j++;           // plateau
+      if (j + 1 < n && y[j + 1] < y[i]) cand.push((i + j) >> 1);
+      i = j + 1;
+    } else i++;
+  }
+  const peaks = [];
+  for (const p of cand) {
+    const h = y[p];
+    if (h < minHeight) continue;
+    let lmin = h; for (let k = p - 1; k >= 0; k--) { if (y[k] > h) break; if (y[k] < lmin) lmin = y[k]; }
+    let rmin = h; for (let k = p + 1; k < n; k++) { if (y[k] > h) break; if (y[k] < rmin) rmin = y[k]; }
+    const prom = h - Math.max(lmin, rmin);
+    if (prom >= minProm) peaks.push({ i: p, h, prom });
+  }
+  // Enforce minimum separation, keeping the tallest peaks.
+  peaks.sort((a, b) => b.h - a.h);
+  const kept = [];
+  for (const p of peaks) if (kept.every(q => Math.abs(q.i - p.i) >= minDist)) kept.push(p);
+  return kept.sort((a, b) => a.i - b.i);
+}
+
+/** Morphological opening with a flat window of ±r samples (removes features narrower than 2r+1). */
+function openFlat(y, r) {
+  const n = y.length, e = new Float32Array(n), out = new Float32Array(n);
+  for (let i = 0; i < n; i++) { let m = Infinity; for (let j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++) if (y[j] < m) m = y[j]; e[i] = m; }
+  for (let i = 0; i < n; i++) { let m = -Infinity; for (let j = Math.max(0, i - r); j <= Math.min(n - 1, i + r); j++) if (e[j] > m) m = e[j]; out[i] = m; }
+  return out;
+}
+
+/** Sub-pixel peak position by parabolic interpolation around index p. */
+function refinePeak(y, p) {
+  if (p <= 0 || p >= y.length - 1) return p;
+  const a = y[p - 1], b = y[p], c = y[p + 1], d = a - 2 * b + c;
+  if (d >= 0) return p;
+  return p + clamp(0.5 * (a - c) / d, -0.5, 0.5);
+}
+
+/** Solve A·x = b by Gauss-Jordan elimination with partial pivoting. */
+function solveLinear(A, b) {
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let piv = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[piv][c])) piv = r;
+    if (Math.abs(M[piv][c]) < 1e-12) return null;
+    [M[c], M[piv]] = [M[piv], M[c]];
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+
+/** Least-squares polynomial fit; returns coefficients [a0, a1, …] or null. */
+function polyfit(xs, ys, deg) {
+  const m = deg + 1, A = Array.from({ length: m }, () => new Array(m).fill(0)), b = new Array(m).fill(0);
+  for (let i = 0; i < xs.length; i++) {
+    const pw = [1];
+    for (let k = 1; k <= 2 * deg; k++) pw[k] = pw[k - 1] * xs[i];
+    for (let r = 0; r < m; r++) { b[r] += ys[i] * pw[r]; for (let c = 0; c < m; c++) A[r][c] += pw[r + c]; }
+  }
+  return solveLinear(A, b);
+}
+const polyval = (c, x) => { let v = 0; for (let i = c.length - 1; i >= 0; i--) v = v * x + c[i]; return v; };
+
+/* ==========================================================================
+   4. IMAGE LOADING, ORIENTATION, DISPLAY
+   ========================================================================== */
+
+/**
+ * Images are held as a "base" record:
+ *   { width, height, gray: Float32Array (0–255 scale, full precision), rgba: Uint8ClampedArray | null,
+ *     bits, origW, origH, scaled }
+ * rgba is kept only for colour images; grayscale gels store just `gray`, which halves memory.
+ * 90° rotations / flips rewrite the base exactly; fine rotation resamples a working copy.
+ */
+async function loadFile(file) {
+  if (!file) return;
+  const name = file.name.replace(/\.[^.]+$/, '') || 'gel';
+  let isTiff = /\.tiff?$/i.test(file.name) || /tiff/i.test(file.type);
+  try {
+    const h = new Uint8Array(await file.slice(0, 4).arrayBuffer());
+    isTiff = isTiff || (h[0] === 0x49 && h[1] === 0x49 && h[2] === 42) || (h[0] === 0x4d && h[1] === 0x4d && h[3] === 42);
+  } catch (_) { /* fall through to the browser decoder */ }
+  if (isTiff) {
+    toast(`Decoding ${file.name}…`);
+    try { setSource(await decodeTiff(await file.arrayBuffer()), name); }
+    catch (err) { console.error(err); toast(`Could not read this TIFF: ${err.message}.`, 'error'); }
+    return;
+  }
+  if (!/^image\//i.test(file.type) && !/\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name)) {
+    toast('Unsupported file. Please use a PNG, JPEG or TIFF image.', 'error'); return;
+  }
+  if (file.size > 4e6) toast(`Loading ${file.name}…`);
+  const url = URL.createObjectURL(file);
+  const im = new Image();
+  im.onload = () => {
+    try { setSource(baseFromDrawable(im), name); }
+    catch (err) { console.error(err); toast('This image is too large for the browser’s memory. Try a smaller file.', 'error'); }
+    URL.revokeObjectURL(url);
+  };
+  im.onerror = () => { toast('Could not decode this image.', 'error'); URL.revokeObjectURL(url); };
+  im.src = url;
+}
+
+/** Scale factor (≤ 1) that keeps an image within the working-size limits. */
+const fitLimits = (w, h) => Math.min(1, Math.sqrt(MAX_PIXELS / (w * h)), MAX_SIDE / Math.max(w, h));
+
+/** Decode a browser-readable image (Image or Canvas) into a base record at full resolution. */
+function baseFromDrawable(src) {
+  const sw = src.naturalWidth || src.width, sh = src.naturalHeight || src.height, k = fitLimits(sw, sh);
+  const W = Math.max(1, Math.round(sw * k)), H = Math.max(1, Math.round(sh * k));
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d', { willReadFrequently: true });
+  g.imageSmoothingQuality = 'high';
+  g.drawImage(src, 0, 0, W, H);
+  const rgba = g.getImageData(0, 0, W, H).data;
+  c.width = c.height = 1;                                            // release the canvas backing store
+  const gray = new Float32Array(W * H); let isGray = true;
+  for (let i = 0, p = 0; p < gray.length; i += 4, p++) {
+    const r = rgba[i], gg = rgba[i + 1], b = rgba[i + 2];
+    if (isGray && (r !== gg || gg !== b)) isGray = false;
+    gray[p] = 0.299 * r + 0.587 * gg + 0.114 * b;
+  }
+  return { width: W, height: H, gray, rgba: isGray ? null : rgba, bits: 8, origW: sw, origH: sh, scaled: k < 1 };
+}
+
+/* ---- TIFF decoder (baseline + LZW / Deflate / PackBits, strips or tiles, 8/16/32-bit) ---- */
+function lzwDecode(src, expected) {
+  const out = new Uint8Array(expected), prefix = new Int32Array(4096), suffix = new Uint8Array(4096);
+  const first = new Uint8Array(4096), len = new Int32Array(4096);
+  for (let i = 0; i < 256; i++) { prefix[i] = -1; suffix[i] = first[i] = i; len[i] = 1; }
+  const nbits = src.length * 8;
+  let bit = 0, width = 9, next = 258, old = -1, op = 0;
+  const emit = code => {
+    const L = len[code];
+    for (let k = L - 1, c = code; k >= 0; k--, c = prefix[c]) if (op + k < expected) out[op + k] = suffix[c];
+    op += L;
+  };
+  while (bit + width <= nbits && op < expected) {
+    const b = bit >> 3, v = (src[b] << 16) | ((src[b + 1] || 0) << 8) | (src[b + 2] || 0);
+    const code = (v >> (24 - (bit & 7) - width)) & ((1 << width) - 1);
+    bit += width;
+    if (code === 257) break;                                           // end of information
+    if (code === 256) { width = 9; next = 258; old = -1; continue; }   // clear table
+    if (old === -1) { if (code > 255) break; emit(code); old = code; continue; }
+    if (code < next) {
+      emit(code);
+      if (next < 4096) { prefix[next] = old; suffix[next] = first[code]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
+    } else {
+      if (next < 4096) { prefix[next] = old; suffix[next] = first[old]; first[next] = first[old]; len[next] = len[old] + 1; next++; }
+      emit(code);
+    }
+    old = code;
+    if (next + 1 >= (1 << width) && width < 12) width++;              // TIFF "early change"
+  }
+  return out;
+}
+function packBitsDecode(src, expected) {
+  const out = new Uint8Array(expected); let i = 0, o = 0;
+  while (i < src.length && o < expected) {
+    const n = (src[i++] << 24) >> 24;
+    if (n >= 0) { for (let k = 0; k <= n && o < expected; k++) out[o++] = src[i++]; }
+    else if (n !== -128) { const v = src[i++]; for (let k = 0; k < 1 - n && o < expected; k++) out[o++] = v; }
+  }
+  return out;
+}
+async function inflate(src) {
+  if (typeof DecompressionStream === 'undefined') throw new Error('this browser cannot decode Deflate-compressed TIFFs');
+  const stream = new Blob([src]).stream().pipeThrough(new DecompressionStream('deflate'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+async function decodeTiff(buf) {
+  const dv = new DataView(buf), u8 = new Uint8Array(buf);
+  const bom = dv.getUint16(0), le = bom === 0x4949;
+  if (!le && bom !== 0x4d4d) throw new Error('not a TIFF file');
+  const ver = dv.getUint16(2, le);
+  if (ver === 43) throw new Error('BigTIFF is not supported; save as a standard TIFF');
+  if (ver !== 42) throw new Error('not a TIFF file');
+  const SZ = { 1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8, 13: 4 };
+  const ifd = dv.getUint32(4, le), nTags = dv.getUint16(ifd, le), T = {};
+  for (let i = 0; i < nTags; i++) {
+    const e = ifd + 2 + i * 12, tag = dv.getUint16(e, le), type = dv.getUint16(e + 2, le), count = dv.getUint32(e + 4, le);
+    const sz = SZ[type] || 1, off = sz * count <= 4 ? e + 8 : dv.getUint32(e + 8, le), vals = [];
+    if (type === 2 || off + sz * count > buf.byteLength) { T[tag] = vals; continue; }
+    for (let k = 0; k < count; k++) {
+      const p = off + k * sz;
+      vals.push(type === 3 ? dv.getUint16(p, le) : type === 4 || type === 13 ? dv.getUint32(p, le)
+        : type === 5 ? dv.getUint32(p, le) / (dv.getUint32(p + 4, le) || 1) : type === 8 ? dv.getInt16(p, le)
+        : type === 9 ? dv.getInt32(p, le) : type === 11 ? dv.getFloat32(p, le) : type === 12 ? dv.getFloat64(p, le) : u8[p]);
+    }
+    T[tag] = vals;
+  }
+  const g1 = (t, d) => (T[t] && T[t].length ? T[t][0] : d);
+  const W = g1(256, 0), H = g1(257, 0), bps = g1(258, 1), spp = g1(277, 1), comp = g1(259, 1);
+  const photo = g1(262, 1), planar = g1(284, 1), pred = g1(317, 1), fmt = g1(339, 1);
+  if (!W || !H) throw new Error('missing image dimensions');
+  if (![8, 16, 32].includes(bps)) throw new Error(`${bps}-bit samples are not supported (use 8- or 16-bit)`);
+  if (spp > 1 && planar !== 1) throw new Error('planar (separate-plane) TIFF layout is not supported');
+  if (![0, 1, 2, 3].includes(photo)) throw new Error('only grayscale, RGB and palette TIFFs are supported');
+  if (![1, 5, 8, 32946, 32773].includes(comp)) throw new Error(`compression type ${comp} is not supported (use none, LZW, Deflate or PackBits)`);
+  const color = photo === 2 && spp >= 3, cmap = photo === 3 ? T[320] : null;
+  const tiled = !!T[322];
+  const cw = tiled ? g1(322) : W, ch = tiled ? g1(323) : Math.min(g1(278, H), H);
+  const offs = tiled ? T[324] : T[273], cnts = tiled ? T[325] : T[279];
+  if (!offs || !offs.length) throw new Error('no image data found');
+  const across = Math.ceil(W / cw), Bps = bps / 8, rowBytes = cw * spp * Bps;
+
+  // Downsample by an integer box factor when the image exceeds the working limits.
+  const s = Math.max(1, Math.ceil(1 / fitLimits(W, H) - 1e-9));
+  const oW = Math.floor(W / s) || 1, oH = Math.floor(H / s) || 1, area = s * s;
+  const gray = new Float32Array(oW * oH), rgb = color || cmap ? new Float32Array(oW * oH * 3) : null;
+  const maxV = bps === 8 ? 255 : bps === 16 ? 65535 : fmt === 3 ? 1 : 4294967295;
+  let fmax = 0;
+
+  for (let ci = 0; ci < offs.length; ci++) {
+    const x0 = (ci % across) * cw, y0 = Math.floor(ci / across) * ch;
+    if (y0 >= H) break;
+    const rows = Math.min(ch, H - y0), expected = rowBytes * (tiled ? ch : rows);
+    let raw = u8.subarray(offs[ci], offs[ci] + (cnts ? cnts[ci] : expected));
+    let data = comp === 1 ? raw : comp === 5 ? lzwDecode(raw, expected) : comp === 32773 ? packBitsDecode(raw, expected) : await inflate(raw);
+    const ddv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+    if (pred === 2) {                                                     // undo horizontal differencing
+      if (comp === 1) { data = data.slice(); }
+      const pdv = new DataView(data.buffer, data.byteOffset, data.byteLength);
+      for (let r = 0; r < rows; r++) {
+        const rs = r * rowBytes;
+        for (let i = spp; i < cw * spp; i++) {
+          if (bps === 8) { if (rs + i < data.length) data[rs + i] = (data[rs + i] + data[rs + i - spp]) & 255; }
+          else if (bps === 16 && rs + i * 2 + 1 < data.length) pdv.setUint16(rs + i * 2, (pdv.getUint16(rs + i * 2, le) + pdv.getUint16(rs + (i - spp) * 2, le)) & 0xffff, le);
+        }
+      }
+    }
+    const rdv = pred === 2 ? new DataView(data.buffer, data.byteOffset, data.byteLength) : ddv, dlen = data.length;
+    const sample = o => o + Bps > dlen ? 0 : bps === 8 ? data[o] : bps === 16 ? rdv.getUint16(o, le) : fmt === 3 ? rdv.getFloat32(o, le) : rdv.getUint32(o, le);
+    for (let r = 0; r < rows; r++) {
+      const oy = ((y0 + r) / s) | 0; if (oy >= oH) continue;
+      const cols = Math.min(cw, W - x0);
+      for (let c = 0; c < cols; c++) {
+        const ox = ((x0 + c) / s) | 0; if (ox >= oW) continue;
+        const o = (r * cw + c) * spp * Bps, d = oy * oW + ox;
+        if (cmap) {
+          const idx = sample(o), n = 1 << bps;
+          const R = cmap[idx] / 257, G = cmap[n + idx] / 257, B = cmap[2 * n + idx] / 257;
+          rgb[d * 3] += R; rgb[d * 3 + 1] += G; rgb[d * 3 + 2] += B; gray[d] += 0.299 * R + 0.587 * G + 0.114 * B;
+        } else if (color) {
+          const R = sample(o) / maxV * 255, G = sample(o + Bps) / maxV * 255, B = sample(o + 2 * Bps) / maxV * 255;
+          rgb[d * 3] += R; rgb[d * 3 + 1] += G; rgb[d * 3 + 2] += B; gray[d] += 0.299 * R + 0.587 * G + 0.114 * B;
+        } else {
+          let v = sample(o);
+          if (fmt === 3) { if (v > fmax) fmax = v; } else v = v / maxV * 255;
+          gray[d] += photo === 0 && fmt !== 3 ? 255 - v : v;
+        }
+      }
+    }
+  }
+  if (area > 1) { for (let i = 0; i < gray.length; i++) gray[i] /= area; if (rgb) for (let i = 0; i < rgb.length; i++) rgb[i] /= area; }
+  if (fmt === 3 && !rgb) { const k = fmax > 0 ? 255 / fmax : 1; for (let i = 0; i < gray.length; i++) gray[i] = photo === 0 ? 255 - gray[i] * k : gray[i] * k; }
+  let rgba = null;
+  if (rgb) {
+    let isGray = true;
+    for (let i = 0; i < rgb.length && isGray; i += 3) if (Math.abs(rgb[i] - rgb[i + 1]) > 0.5 || Math.abs(rgb[i + 1] - rgb[i + 2]) > 0.5) isGray = false;
+    if (!isGray) {
+      rgba = new Uint8ClampedArray(oW * oH * 4);
+      for (let p = 0; p < oW * oH; p++) { rgba[p * 4] = rgb[p * 3]; rgba[p * 4 + 1] = rgb[p * 3 + 1]; rgba[p * 4 + 2] = rgb[p * 3 + 2]; rgba[p * 4 + 3] = 255; }
+    }
+  }
+  return { width: oW, height: oH, gray, rgba, bits: bps, origW: W, origH: H, scaled: s > 1 };
+}
+
+/* ---- Source handling, orientation and display ---- */
+
+/** Entry point for a new image. `hints` may carry {wellY, frontY} (demo gel). */
+function setSource(base, name, hints) {
+  state.base = base; state.fileName = name;
+  state.fineRotation = 0; $('#fineRot').value = 0; $('#fineRotOut').textContent = '0.0°';
+  const g = base.gray, step = Math.max(1, Math.floor(g.length / 40000)), smp = [];
+  for (let i = 0; i < g.length; i += step) smp.push(g[i]);
+  state.bgValue = median(smp);
+  Object.assign(state.display, { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 });
+  syncDisplayControls();
+  buildWorking();
+  if (base.bits > 8) autoLevels(true);                                 // 16-bit data rarely spans the full range
+  autoPolarity();
+  renderDisplay();
+  initLayout(hints);
+  scaleDetectDefaults();
+  resetAnnotations();
+  $('#emptyState').classList.add('hidden');
+  ['#btnExportPng', '#btnExportCsv'].forEach(s => $(s).disabled = false);
+  fitView();
+  syncControls();
+  invalidate('analysis', 'laneUI', 'gel', 'profile');
+  toast(`Loaded ${name} (${base.origW}×${base.origH}${base.bits > 8 ? `, ${base.bits}-bit` : ''}${base.scaled ? `, analysed at ${base.width}×${base.height}` : ''}). ${state.lanes.length} lanes found; lane 1 is set as the ladder.`);
+}
+
+/** Build the working image (base, or a fine-rotated copy of it) and its display canvas. */
+function buildWorking() {
+  const B = state.base;
+  const img = state.fineRotation ? rotateFine(B, state.fineRotation) : { ...B };
+  if (state.dispCanvas) state.dispCanvas.width = state.dispCanvas.height = 0;   // free the previous canvas
+  state.img = img;
+  state.dispCanvas = document.createElement('canvas');
+  state.dispCanvas.width = img.width; state.dispCanvas.height = img.height;
+  state.dispCtx = state.dispCanvas.getContext('2d');
+  state.dispData = state.dispCtx.createImageData(img.width, img.height);
+  state.lanes.forEach(L => L.profile = null);
+  updateImageMeta();
+}
+
+/** Exact 90° rotation ('cw' / 'ccw') or horizontal flip of the base image. */
+function transformBase(kind) {
+  const B = state.base, W = B.width, H = B.height;
+  const nW = kind === 'flip' ? W : H, nH = kind === 'flip' ? H : W;
+  const dst = kind === 'cw' ? (x, y) => x * nW + (H - 1 - y) : kind === 'ccw' ? (x, y) => (W - 1 - x) * nW + y : (x, y) => y * W + (W - 1 - x);
+  const gray = new Float32Array(nW * nH), rgba = B.rgba ? new Uint8ClampedArray(nW * nH * 4) : null;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const s = y * W + x, d = dst(x, y);
+    gray[d] = B.gray[s];
+    if (rgba) { const s4 = s * 4, d4 = d * 4; rgba[d4] = B.rgba[s4]; rgba[d4 + 1] = B.rgba[s4 + 1]; rgba[d4 + 2] = B.rgba[s4 + 2]; rgba[d4 + 3] = 255; }
+  }
+  state.base = { ...B, width: nW, height: nH, gray, rgba };
+}
+
+/** Bilinear rotation about the image centre (degrees, clockwise); corners filled with background. */
+function rotateFine(B, deg) {
+  const W = B.width, H = B.height, a = deg * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+  const cx = (W - 1) / 2, cy = (H - 1) / 2, bg = state.bgValue;
+  const gray = new Float32Array(W * H), rgba = B.rgba ? new Uint8ClampedArray(W * H * 4) : null;
+  for (let y = 0; y < H; y++) {
+    const dy = y - cy;
+    for (let x = 0; x < W; x++) {
+      const dx = x - cx, sx = cx + dx * ca + dy * sa, sy = cy - dx * sa + dy * ca, d = y * W + x;
+      if (sx < 0 || sy < 0 || sx > W - 1 || sy > H - 1) {
+        gray[d] = bg;
+        if (rgba) { rgba[d * 4] = rgba[d * 4 + 1] = rgba[d * 4 + 2] = bg; rgba[d * 4 + 3] = 255; }
+        continue;
+      }
+      const x0 = sx | 0, y0 = sy | 0, x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1), fx = sx - x0, fy = sy - y0;
+      const i00 = y0 * W + x0, i10 = y0 * W + x1, i01 = y1 * W + x0, i11 = y1 * W + x1;
+      const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy), w01 = (1 - fx) * fy, w11 = fx * fy;
+      gray[d] = B.gray[i00] * w00 + B.gray[i10] * w10 + B.gray[i01] * w01 + B.gray[i11] * w11;
+      if (rgba) {
+        for (let c = 0; c < 3; c++) rgba[d * 4 + c] = B.rgba[i00 * 4 + c] * w00 + B.rgba[i10 * 4 + c] * w10 + B.rgba[i01 * 4 + c] * w01 + B.rgba[i11 * 4 + c] * w11;
+        rgba[d * 4 + 3] = 255;
+      }
+    }
+  }
+  return { ...B, gray, rgba };
+}
+
+/** Light background → dark bands (stained gel); dark background → bright bands (fluorescence). */
+function autoPolarity() {
+  const mid = (state.display.lo + state.display.hi) / 2;
+  state.polarity = state.bgValue > mid ? 'dark' : 'bright';
+  $('#polarityHint').textContent = `Auto-detected: ${state.polarity === 'bright' ? 'dark background with bright bands (fluorescence)' : 'light background with dark bands (colorimetric)'}.`;
+}
+
+/** Display black/white points from the 0.02% / 99.98% intensity percentiles. */
+function autoLevels(silent) {
+  if (!state.img) return;
+  const g = state.img.gray, hist = new Uint32Array(4097), step = Math.max(1, Math.floor(g.length / 2e6));
+  let n = 0;
+  for (let i = 0; i < g.length; i += step) { hist[Math.min(4096, Math.max(0, (g[i] * 16) | 0))]++; n++; }
+  const pick = q => { let acc = 0; for (let i = 0; i <= 4096; i++) { acc += hist[i]; if (acc >= q * n) return i / 16; } return 255; };
+  let lo = pick(0.0002), hi = pick(0.9998);
+  if (hi - lo < 0.5) { lo = 0; hi = 255; }
+  state.display.lo = lo; state.display.hi = hi;
+  if (!silent) { renderDisplay(); toast(`Display levels stretched to ${lo.toFixed(1)}–${hi.toFixed(1)}.`); }
+}
+
+/**
+ * Display transfer: black/white points → invert → gamma → contrast → brightness.
+ * Display only; analysis always uses the untouched full-precision intensities.
+ */
+function renderDisplay() {
+  if (!state.img) return;
+  const { brightness, contrast, gamma, invert, lo, hi } = state.display;
+  const c = contrast / 100, f = c >= 0 ? 1 / Math.max(0.02, 1 - c * 0.98) : 1 + c, span = Math.max(1e-6, hi - lo);
+  const tf = v => {
+    let t = clamp((v - lo) / span, 0, 1);
+    if (invert) t = 1 - t;
+    t = Math.pow(t, 1 / gamma);
+    return Math.round(((t - 0.5) * f + 0.5 + brightness / 100) * 255);
+  };
+  const img = state.img, o = state.dispData.data;
+  if (img.rgba) {
+    const lut = new Uint8ClampedArray(256); for (let i = 0; i < 256; i++) lut[i] = tf(i);
+    const s = img.rgba;
+    for (let i = 0; i < s.length; i += 4) { o[i] = lut[s[i]]; o[i + 1] = lut[s[i + 1]]; o[i + 2] = lut[s[i + 2]]; o[i + 3] = 255; }
+  } else {
+    const lut = new Uint8ClampedArray(4097); for (let i = 0; i <= 4096; i++) lut[i] = tf(i / 16);
+    const g = img.gray;
+    for (let p = 0, i = 0; p < g.length; p++, i += 4) { const v = lut[Math.min(4096, (g[p] * 16 + 0.5) | 0)]; o[i] = o[i + 1] = o[i + 2] = v; o[i + 3] = 255; }
+  }
+  state.dispCtx.putImageData(state.dispData, 0, 0);
+  invalidate('gel');
+}
+const renderDisplayThrottled = (() => { let pend = false; return () => { if (pend) return; pend = true; requestAnimationFrame(() => { pend = false; renderDisplay(); }); }; })();
+
+/** Re-orient: 'cw' | 'ccw' | 'flip' (resets the lane layout) or 'fine' (keeps lanes). */
+function reorient(kind) {
+  if (!state.base) return;
+  if (kind !== 'fine') transformBase(kind);
+  buildWorking(); renderDisplay();
+  if (kind !== 'fine') { initLayout(); scaleDetectDefaults(); resetAnnotations(); toast('Orientation changed: lanes re-detected.'); }
+  fitView(); syncControls(); invalidate('analysis', 'laneUI');
+}
+
+/** Scale pixel-based detection defaults to the lane length, so high-resolution images work out of the box. */
+function scaleDetectDefaults() {
+  const k = clamp((state.frontY - state.wellY) / 640, 0.5, 40);
+  const set = (id, max, val) => { const el = $('#' + id); el.max = max; el.value = val; el.dispatchEvent(new Event('input')); };
+  set('ballRadius', Math.round(300 * Math.max(1, k)), Math.round(40 * k));
+  set('minDistance', Math.round(40 * Math.max(1, k)), Math.max(2, Math.round(6 * k)));
+  set('smoothing', Math.max(8, Math.round(8 * k)), Math.round(3 * k) / 2);
+}
+
+/** Gaussian random numbers (Box–Muller), seeded for a reproducible demo. */
+function makeRng(seed) {
+  let s = seed >>> 0;
+  const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
+  return { rnd, gauss: () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd()) };
+}
+
+/**
+ * Synthesise a realistic ethidium-stained agarose gel: 12 lanes, GeneRuler 1 kb
+ * ladder in lane 1, slight gel "smile", one slanted lane, a smear and noise.
+ */
+function generateDemoGel() {
+  const W = 1100, H = 760, well = 64, front = 700, nL = 12, margin = 46;
+  const pitch = (W - 2 * margin) / nL, laneW = pitch * 0.66;
+  const F = new Float32Array(W * H);
+  const { gauss } = makeRng(20240611);
+  // Migration model (mildly non-linear in log size, like real agarose gels).
+  const rfOf = bp => { const d = 4 - Math.log10(bp); return 0.06 + 0.52 * d - 0.045 * d * d; };
+  const ladder = LADDER_PRESETS['generuler-1kb'].sizes.map(s => [s, (s === 6000 || s === 3000 || s === 1000) ? 1.7 : 1]);
+  const lanes = [
+    ladder,
+    [[3000, 1.2]],
+    [[1500, 1.0], [750, 0.55]],
+    [[2200, 0.9]],
+    [],                                        // negative control
+    [[6200, 0.5], [3800, 0.95], [2700, 0.6]],
+    [[850, 1.1], [420, 0.7]],
+    [[1200, 1.0]],
+    [[4000, 0.7], [1000, 0.75], [500, 0.5]],
+    [[650, 1.25]],
+    [[1800, 0.35]],
+    [[2500, 0.8], [1200, 0.8]],
+  ];
+  const addBand = (xc, hw, yb, sigma, amp, slant) => {
+    const x0 = Math.max(0, Math.floor(xc - hw - 8)), x1 = Math.min(W - 1, Math.ceil(xc + hw + 8 + Math.abs(slant)));
+    const y0 = Math.max(0, Math.floor(yb - sigma * 4 - 4)), y1 = Math.min(H - 1, Math.ceil(yb + sigma * 4 + 4));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const u = (x - xc) / hw;
+        const ex = 1 / (1 + Math.exp(-(x - (xc - hw)) / 1.6)) / (1 + Math.exp((x - (xc + hw)) / 1.6));
+        const yy = yb - 2.2 * u * u;                                  // band bows slightly at the edges
+        F[y * W + x] += amp * ex * Math.exp(-((y - yy) ** 2) / (2 * sigma * sigma));
+      }
+    }
+  };
+  lanes.forEach((bands, li) => {
+    const xc0 = margin + (li + 0.5) * pitch, uu = (xc0 - W / 2) / (W / 2);
+    const smile = 1 + 0.012 * (1 - uu * uu);                         // centre lanes run slightly further
+    const slant = li === 6 ? 9 : 0;                                    // lane 7 is slanted
+    addBand(xc0, laneW / 2, well + 2, 3.5, 150, 0);                    // well glow (loading dye / retained DNA)
+    for (const [bp, rel] of bands) {
+      const rf = rfOf(bp) * smile, y = well + rf * (front - well);
+      addBand(xc0 + slant * rf, laneW / 2, y, 2.8 + 1.2 * rf, 150 * rel, slant);
+    }
+    if (li === 9) {                                                    // degraded-sample smear
+      for (let y = Math.round(well + 0.35 * (front - well)); y < well + 0.92 * (front - well); y++) {
+        const t = (y - well) / (front - well);
+        for (let x = Math.round(xc0 - laneW / 2); x <= xc0 + laneW / 2; x++) F[y * W + x] += 10 * Math.exp(-((t - 0.7) ** 2) / 0.02);
+      }
+    }
+  });
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d'), id = g.createImageData(W, H), d = id.data;
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const bg = 12 + 14 * Math.exp(-(((x - W / 2) / (W * 0.55)) ** 2 + ((y - H * 0.45) / (H * 0.6)) ** 2));
+      const p = y * W + x, v = clamp(bg + 238 * (1 - Math.exp(-F[p] / 190)) + gauss() * 3.2, 0, 255);
+      d[p * 4] = v; d[p * 4 + 1] = v; d[p * 4 + 2] = v; d[p * 4 + 3] = 255;
+    }
+  }
+  g.putImageData(id, 0, 0);
+  // Wells: thin dark slots at the top.
+  g.fillStyle = 'rgba(0,0,0,.55)';
+  for (let li = 0; li < nL; li++) g.fillRect(margin + (li + 0.5) * pitch - laneW / 2, well - 9, laneW, 6);
+  return { canvas: c, hints: { wellY: well, frontY: front } };
+}
+function loadDemo() {
+  const { canvas, hints } = generateDemoGel();
+  state.calib.preset = 'generuler-1kb';
+  state.calib.sizes = LADDER_PRESETS['generuler-1kb'].sizes.slice();
+  state.calib.offset = 0; state.calib.assignMode = 'auto';
+  setSource(baseFromDrawable(canvas), 'demo_gel', hints);
+}
+
+/* ==========================================================================
+   5. VIEW TRANSFORM (zoom / pan)
+   ========================================================================== */
+const gel = { canvas: $('#gelCanvas'), ctx: $('#gelCanvas').getContext('2d'), w: 0, h: 0, dpr: 1 };
+
+const toScreen = (x, y) => ({ x: state.view.ox + x * state.view.scale, y: state.view.oy + y * state.view.scale });
+const toImage = (sx, sy) => ({ x: (sx - state.view.ox) / state.view.scale, y: (sy - state.view.oy) / state.view.scale });
+
+function fitView() {
+  if (!state.img) return;
+  const pad = 28, W = state.img.width, H = state.img.height + (state.step === 5 ? captionHeight() : 0);
+  const s = Math.min((gel.w - 2 * pad) / W, (gel.h - 2 * pad) / H);
+  state.view.scale = s > 0 ? s : 1;
+  state.view.ox = (gel.w - W * state.view.scale) / 2;
+  state.view.oy = (gel.h - H * state.view.scale) / 2;
+  updateZoomLabel(); invalidate('gel');
+}
+function zoomAt(sx, sy, factor) {
+  const v = state.view, ns = clamp(v.scale * factor, 0.02, 40), k = ns / v.scale;
+  v.ox = sx - (sx - v.ox) * k; v.oy = sy - (sy - v.oy) * k; v.scale = ns;
+  updateZoomLabel(); invalidate('gel');
+}
+function zoomTo(scale) { zoomAt(gel.w / 2, gel.h / 2, scale / state.view.scale); }
+function updateZoomLabel() { $('#zoomLabel').textContent = Math.round(state.view.scale * 100) + '%'; }
+
+/* ==========================================================================
+   6. LANES: geometry, grid generation, auto-detection
+   ========================================================================== */
+
+/**
+ * A lane is a (possibly slanted) parallelogram. Its centre line runs from
+ * (xTop, wellY + dyTop) to (xBot, frontY + dyBot); dy offsets let each lane
+ * follow gel "smiling", and xTop ≠ xBot follows a slanted lane.
+ */
+function makeLane(x, width) {
+  return { id: state.nextLaneId++, xTop: x, xBot: x, width, dyTop: 0, dyBot: 0, isLadder: false,
+           profile: null, bands: [], manual: [], rejected: [] };
+}
+const laneTop = L => state.wellY + L.dyTop;
+const laneBot = L => state.frontY + L.dyBot;
+function laneCenterAt(L, y) {
+  const t = clamp((y - laneTop(L)) / Math.max(1, laneBot(L) - laneTop(L)), 0, 1);
+  return L.xTop + t * (L.xBot - L.xTop);
+}
+const laneIndex = L => state.lanes.indexOf(L);
+const ladderLane = () => state.lanes.find(L => L.isLadder) || null;
+function sortLanes() { state.lanes.sort((a, b) => (a.xTop + a.xBot) - (b.xTop + b.xBot)); }
+function invalidateLane(L) { L.profile = null; }
+
+/** Initial layout for a freshly loaded image: guess baselines and detect lanes. */
+function initLayout(hints) {
+  const H = state.img.height;
+  state.wellY = hints && hints.wellY != null ? hints.wellY : Math.round(H * 0.06);
+  state.frontY = hints && hints.frontY != null ? hints.frontY : Math.round(H * 0.94);
+  state.lanes = []; state.sel = null; state.selBand = null;
+  const n = autoDetectLanes(false, true);
+  if (n < 2) generateGrid(+$('#laneCount').value || 10);
+  if (state.lanes.length) state.lanes[0].isLadder = true;
+  state.sel = state.lanes[0] || null;
+  $('#laneCount').value = state.lanes.length;
+}
+
+/** Evenly spaced lanes across the current lane extent (or the image width). */
+function generateGrid(n) {
+  if (!state.img) return;
+  n = clamp(Math.round(n) || 1, 1, 80);
+  const W = state.img.width;
+  let x0 = W * 0.04, x1 = W * 0.96;
+  if (state.lanes.length >= 2) {
+    const first = state.lanes[0], last = state.lanes[state.lanes.length - 1];
+    x0 = Math.max(0, Math.min(first.xTop, first.xBot) - first.width / 2);
+    x1 = Math.min(W, Math.max(last.xTop, last.xBot) + last.width / 2);
+  }
+  const pitch = (x1 - x0) / n;
+  state.lanes = [];
+  for (let i = 0; i < n; i++) state.lanes.push(makeLane(x0 + (i + 0.5) * pitch, pitch * 0.72));
+  state.lanes[0].isLadder = true;
+  state.sel = state.lanes[0]; state.selBand = null;
+}
+
+/**
+ * Auto-detect lanes from the horizontal intensity projection (column means
+ * between the well and dye-front lines). Peaks of the background-corrected
+ * projection are lane centres; lane width comes from the median peak FWHM.
+ * Returns the number of lanes found (0 = nothing changed).
+ */
+function autoDetectLanes(forceCount, silent) {
+  if (!state.img) return 0;
+  const { width: W, height: H, gray } = state.img, inv = state.polarity === 'dark';
+  const y0 = clamp(Math.round(state.wellY), 0, H - 1), y1 = clamp(Math.round(state.frontY), y0 + 1, H);
+  const col = new Float32Array(W), ys = Math.max(1, Math.floor((y1 - y0) / 500));
+  let cnt = 0;
+  for (let y = y0; y < y1; y += ys) { cnt++; const r = y * W; for (let x = 0; x < W; x++) col[x] += gray[r + x]; }
+  for (let x = 0; x < W; x++) col[x] = inv ? 255 - col[x] / Math.max(1, cnt) : col[x] / Math.max(1, cnt);
+  // Background: flat opening wider than any lane (follows uneven illumination), then smoothed.
+  const sm = gaussianSmooth(col, Math.max(1, W / 400));
+  const r = Math.max(3, Math.round(W / 12));
+  const base = gaussianSmooth(openFlat(sm, r), r / 2);
+  const corr = new Float32Array(W);
+  for (let x = 0; x < W; x++) corr[x] = Math.max(0, sm[x] - Math.min(base[x], sm[x]));
+  const max = arrMax(corr);
+  if (!(max > 0)) { if (!silent) toast('No lane structure found. Try a grid instead.', 'error'); return 0; }
+
+  let peaks;
+  if (forceCount > 0) {
+    peaks = findPeaks(corr, { minProm: max * 0.005, minDist: Math.max(3, 0.55 * W / (forceCount + 1)) })
+      .sort((a, b) => b.prom - a.prom).slice(0, forceCount).sort((a, b) => a.i - b.i);
+  } else {
+    peaks = findPeaks(corr, { minProm: max * 0.025, minHeight: max * 0.02, minDist: Math.max(4, W / 60) });
+  }
+  if (peaks.length < 1) { if (!silent) toast('No lanes detected. Adjust well/front lines or use a grid.', 'error'); return 0; }
+
+  // Lanes project as flat-topped plateaus, so the centre is the midpoint of the
+  // half-maximum crossings and the width is the full width at half maximum.
+  const spans = peaks.map(p => {
+    const half = corr[p.i] / 2; let l = p.i, rr = p.i;
+    while (l > 0 && corr[l - 1] > half) l--;
+    while (rr < W - 1 && corr[rr + 1] > half) rr++;
+    return { c: (l + rr) / 2, w: rr - l + 1 };
+  });
+  const gaps = spans.slice(1).map((s, i) => s.c - spans[i].c);
+  const minGap = gaps.length ? Math.min(...gaps) : W / 4;
+  const width = clamp(median(spans.map(s => s.w)) * 0.95, 4, minGap * 0.92);
+
+  state.lanes = spans.map(s => makeLane(s.c, width));
+  state.lanes[0].isLadder = true;
+  state.sel = state.lanes[0]; state.selBand = null;
+  $('#laneCount').value = state.lanes.length;
+  if (!silent) toast(`Detected ${state.lanes.length} lanes. Lane 1 is set as the ladder.`);
+  return state.lanes.length;
+}
+
+function addLane() {
+  if (!state.img) return;
+  const W = state.img.width;
+  const w = state.lanes.length ? median(state.lanes.map(l => l.width)) : W / 14;
+  const xs = state.lanes.map(l => (l.xTop + l.xBot) / 2).sort((a, b) => a - b);
+  let x = W / 2;
+  if (xs.length) {
+    const pts = [0, ...xs, W]; let best = -1;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const gap = pts[i + 1] - pts[i] - ((i === 0 || i === pts.length - 2) ? w / 2 : 0);
+      if (gap > best) { best = gap; x = i === 0 ? Math.max(w / 2, pts[1] - w * 1.3) : i === pts.length - 2 ? Math.min(W - w / 2, pts[i] + w * 1.3) : (pts[i] + pts[i + 1]) / 2; }
+    }
+  }
+  const L = makeLane(x, w);
+  state.lanes.push(L); sortLanes(); selectLane(L);
+  invalidate('analysis', 'laneUI');
+}
+function deleteLane(L) {
+  if (!L) return;
+  const i = laneIndex(L);
+  state.lanes.splice(i, 1);
+  state.sel = state.lanes[Math.min(i, state.lanes.length - 1)] || null;
+  state.selBand = null;
+  invalidate('analysis', 'laneUI');
+}
+function selectLane(L) {
+  if (state.sel === L) return;
+  state.sel = L; state.hover = null;
+  if (state.selBand && state.selBand.lane !== L) state.selBand = null;
+  invalidate('laneUI', 'gel', 'profile', 'tableSel');
+}
+
+/* ==========================================================================
+   7. DENSITOMETRY & BAND DETECTION
+   ========================================================================== */
+
+function sampleBilinear(sig, W, H, x, y) {
+  if (x < 0 || y < 0 || x > W - 1 || y > H - 1) return NaN;
+  const x0 = x | 0, y0 = y | 0, x1 = Math.min(x0 + 1, W - 1), y1 = Math.min(y0 + 1, H - 1), fx = x - x0, fy = y - y0;
+  return (sig[y0 * W + x0] * (1 - fx) + sig[y0 * W + x1] * fx) * (1 - fy) + (sig[y1 * W + x0] * (1 - fx) + sig[y1 * W + x1] * fx) * fy;
+}
+
+/** 1-D profile along the lane centre line: mean signal across the lane width, 1 sample/px. */
+function computeProfile(L) {
+  const { width: W, height: H, gray } = state.img, inv = state.polarity === 'dark';
+  const yT = laneTop(L), yB = laneBot(L);
+  const n = Math.max(3, Math.round(yB - yT) + 1), raw = new Float32Array(n);
+  const nx = clamp(Math.round(L.width), 1, 64);                    // ≤ 64 samples across the lane is plenty for a mean
+  for (let i = 0; i < n; i++) {
+    const t = i / (n - 1), y = yT + t * (yB - yT), cx = L.xTop + t * (L.xBot - L.xTop);
+    let s = 0, c = 0;
+    for (let k = 0; k < nx; k++) {
+      const v = sampleBilinear(gray, W, H, cx - L.width / 2 + (k + 0.5) * L.width / nx, y);
+      if (v === v) { s += v; c++; }
+    }
+    raw[i] = c ? (inv ? 255 - s / c : s / c) : 0;
+  }
+  return { raw, n, key: null, smooth: null, base: null, corr: null, corrSmooth: null };
+}
+
+/** Recompute profiles (cached), baselines (cached per parameter set) and bands for all lanes. */
+function analyzeAll() {
+  if (!state.img) return;
+  const d = state.detect, key = `${d.baseline}|${d.ballRadius}|${d.smoothing}`;
+  let ref = 0;
+  for (const L of state.lanes) {
+    if (!L.profile) L.profile = computeProfile(L);
+    const P = L.profile;
+    if (P.key !== key) {
+      P.smooth = gaussianSmooth(P.raw, d.smoothing);
+      P.base = d.baseline === 'rollingball' ? Baseline.rollingball(P.smooth, d.ballRadius) : Baseline[d.baseline](P.smooth);
+      P.corr = new Float32Array(P.n); P.corrSmooth = new Float32Array(P.n);
+      for (let i = 0; i < P.n; i++) { P.corr[i] = Math.max(0, P.raw[i] - P.base[i]); P.corrSmooth[i] = Math.max(0, P.smooth[i] - P.base[i]); }
+      P.key = key;
+    }
+    ref = Math.max(ref, arrMax(P.corrSmooth));
+  }
+  state.refMax = ref > 0 ? ref : 1;
+  for (const L of state.lanes) detectBands(L);
+  if (state.sel && !state.lanes.includes(state.sel)) state.sel = state.lanes[0] || null;
+}
+
+/** Auto peaks (minus user-rejected ones) plus user-added bands, with integration bounds. */
+function detectBands(L) {
+  const P = L.profile, y = P.corrSmooth, n = P.n, d = state.detect, ref = state.refMax;
+  const edge = Math.round(n * d.edgeExclude / 100);
+  const peaks = findPeaks(y, { minProm: d.prominence / 100 * ref, minHeight: d.noise / 100 * ref,
+                               minDist: d.minDistance, lo: Math.max(1, edge), hi: n - 2 - edge });
+  const tol = Math.max(2, d.minDistance / 2);
+  const list = [];
+  for (const p of peaks) {
+    if (L.rejected.some(rf => Math.abs(rf * (n - 1) - p.i) <= tol)) continue;
+    list.push({ pos: refinePeak(y, p.i), manual: false });
+  }
+  for (const rf of L.manual) {
+    const pos = rf * (n - 1);
+    if (list.some(b => Math.abs(b.pos - pos) < 1.5)) continue;
+    list.push({ pos, manual: true });
+  }
+  list.sort((a, b) => a.pos - b.pos);
+
+  // Integration bounds: 3% of peak height, or the valley shared with a neighbouring band.
+  for (let k = 0; k < list.length; k++) {
+    const b = list[k], p = clamp(Math.round(b.pos), 0, n - 1);
+    const lo = k > 0 ? clamp(Math.round(list[k - 1].pos), 0, p) : 0;
+    const hi = k < list.length - 1 ? clamp(Math.round(list[k + 1].pos), p, n - 1) : n - 1;
+    const thr = 0.03 * y[p];
+    let l = p; while (l > lo && y[l] > thr) l--;
+    if (y[l] > thr) { let mi = p; for (let i = lo; i <= p; i++) if (y[i] < y[mi]) mi = i; l = mi; }
+    let r = p; while (r < hi && y[r] > thr) r++;
+    if (y[r] > thr) { let mi = p; for (let i = p; i <= hi; i++) if (y[i] < y[mi]) mi = i; r = mi; }
+    let area = 0; for (let i = l; i <= r; i++) area += P.corr[i];
+    Object.assign(b, { l, r, area, height: y[p], rf: b.pos / (n - 1) });
+  }
+  // Carry ladder size assignments over from the previous detection.
+  const old = L.bands || [];
+  for (const b of list) {
+    let best = null, bd = 3;
+    for (const o of old) { const dd = Math.abs(o.rf - b.rf) * (n - 1); if (dd <= bd) { bd = dd; best = o; } }
+    if (best && 'size' in best) b.size = best.size;
+    if (best && best.lab) b.lab = best.lab;
+  }
+  L.bands = list;
+}
+
+/** Add a band at relative position rf, optionally snapping to a nearby local maximum. */
+function addBandAt(L, rf, snap = true) {
+  if (!L || !L.profile || !L.profile.corrSmooth) return;
+  const P = L.profile, y = P.corrSmooth, n = P.n;
+  let pos = clamp(rf, 0, 1) * (n - 1);
+  if (snap) {
+    const c = Math.round(pos); let best = c;
+    for (let i = Math.max(1, c - 4); i <= Math.min(n - 2, c + 4); i++) if (y[i] > y[best]) best = i;
+    if (best > 0 && best < n - 1 && y[best] >= y[best - 1] && y[best] >= y[best + 1] && y[best] > 0) pos = refinePeak(y, best);
+  }
+  if (L.bands.some(b => Math.abs(b.pos - pos) < 2)) { toast('A band already exists at this position.'); return; }
+  const tol = Math.max(2, state.detect.minDistance / 2);
+  L.rejected = L.rejected.filter(r => Math.abs(r * (n - 1) - pos) > tol);
+  L.manual.push(pos / (n - 1));
+  state.selBand = { lane: L, rf: pos / (n - 1) };
+  invalidate('analysis');
+}
+function removeManualNear(L, rf) {
+  if (!L.manual.length) return;
+  let bi = 0; L.manual.forEach((m, i) => { if (Math.abs(m - rf) < Math.abs(L.manual[bi] - rf)) bi = i; });
+  L.manual.splice(bi, 1);
+}
+function deleteBand(L, b) {
+  if (b.manual) removeManualNear(L, b.rf); else L.rejected.push(b.rf);
+  state.selBand = null;
+  invalidate('analysis');
+}
+function moveBand(L, oldRf, newRf, wasManual) {
+  if (wasManual) removeManualNear(L, oldRf); else L.rejected.push(oldRf);
+  L.manual.push(clamp(newRf, 0, 1));
+  state.selBand = { lane: L, rf: newRf };
+  invalidate('analysis');
+}
+function findSelBand() {
+  const s = state.selBand;
+  if (!s || !state.lanes.includes(s.lane)) return null;
+  let best = null, bd = 0.006;
+  for (const b of s.lane.bands) { const d = Math.abs(b.rf - s.rf); if (d < bd) { bd = d; best = b; } }
+  return best;
+}
+
+/* ==========================================================================
+   8. MOLECULAR-WEIGHT CALIBRATION
+   ========================================================================== */
+
+/** Parse "10000, 8000, 1.5k, 750" → sorted unique sizes (bp), largest first. */
+function parseSizes(text) {
+  const out = [];
+  for (const tok of String(text).split(/[\s,;]+/)) {
+    const m = tok.trim().match(/^([\d.]+)\s*(k|kb|kbp|bp)?$/i);
+    if (!m) continue;
+    let v = parseFloat(m[1]);
+    if (m[2] && /^k/i.test(m[2])) v *= 1000;
+    if (v > 0 && isFinite(v)) out.push(Math.round(v * 100) / 100);
+  }
+  return Array.from(new Set(out)).sort((a, b) => b - a);
+}
+
+/** Fit log10(size) = f(Rf) with the chosen model. */
+function fitModel(pts, model) {
+  const n = pts.length, xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  let logf, eq, coef = null, deg = 0;
+  if (model === 'p2p') {
+    const s = pts.slice().sort((a, b) => a.x - b.x).filter((p, i, a) => i === 0 || p.x > a[i - 1].x + 1e-9);
+    if (s.length < 2) return null;
+    logf = x => {
+      let i = 0;
+      while (i < s.length - 2 && x > s[i + 1].x) i++;
+      const a = s[i], b = s[i + 1];
+      return a.y + (b.y - a.y) * (x - a.x) / (b.x - a.x);
+    };
+    eq = 'Piecewise log-linear interpolation between ladder bands';
+  } else {
+    deg = Math.min({ linear: 1, quadratic: 2, cubic: 3 }[model] || 1, n - 1);
+    while (deg >= 1 && !(coef = polyfit(xs, ys, deg))) deg--;
+    if (!coef) return null;
+    logf = x => polyval(coef, x);
+    const fmtC = (c, i) => {
+      const term = i === 0 ? '' : i === 1 ? '·Rf' : `·Rf${i === 2 ? '²' : '³'}`;
+      const sign = c < 0 ? ' − ' : ' + ';
+      return (i === 0 ? (c < 0 ? '−' : '') : sign) + Math.abs(c).toFixed(4) + term;
+    };
+    eq = 'log₁₀(bp) = ' + coef.map(fmtC).join('');
+  }
+  const mean = ys.reduce((a, b) => a + b, 0) / n;
+  let ssr = 0, sst = 0;
+  pts.forEach(p => { ssr += (p.y - logf(p.x)) ** 2; sst += (p.y - mean) ** 2; });
+  const r2 = model === 'p2p' ? null : (sst > 0 ? 1 - ssr / sst : 1);
+  // Monotonicity sanity check inside the calibrated range.
+  let monotone = true, prev = logf(minX);
+  for (let i = 1; i <= 50; i++) { const v = logf(minX + (maxX - minX) * i / 50); if (v > prev + 1e-9) { monotone = false; break; } prev = v; }
+  return { model, deg, coef, logf, predict: x => Math.pow(10, logf(x)), r2, minX, maxX, n, eq, monotone,
+           rmse: Math.sqrt(ssr / n) };
+}
+
+/** Assign ladder sizes, fit the standard curve and estimate every band's size. */
+function calibrate() {
+  const C = state.calib;
+  C.fit = null; C.points = []; C.warning = '';
+  for (const L of state.lanes) for (const b of L.bands) { b.est = null; b.extrap = false; }
+  const L = ladderLane();
+  if (!L) { C.warning = 'No ladder lane selected. Mark one in step 2 or choose it above.'; return; }
+  const sizes = C.sizes.slice(clamp(C.offset | 0, 0, C.sizes.length));
+  if (C.assignMode === 'auto') L.bands.forEach((b, i) => { b.size = i < sizes.length ? sizes[i] : null; });
+  const pts = L.bands.filter(b => b.size > 0).map(b => ({ x: b.rf, y: Math.log10(b.size), band: b }));
+  C.points = pts;
+  const warn = [];
+  if (C.assignMode === 'auto' && L.bands.length !== sizes.length)
+    warn.push(`Ladder lane has ${L.bands.length} bands, but ${sizes.length} sizes are expected. Check the assignments below, add or delete bands in step 3, or skip top sizes.`);
+  if (pts.length < 2) { warn.push('At least 2 assigned ladder bands are needed to fit a curve.'); C.warning = warn.join(' '); return; }
+  C.fit = fitModel(pts, C.model);
+  if (!C.fit) { warn.push('Regression failed (degenerate ladder positions).'); C.warning = warn.join(' '); return; }
+  if (!C.fit.monotone) warn.push('The fitted curve is not monotonic; check the size assignments or use a lower-order model.');
+  C.warning = warn.join(' ');
+  const pad = 0.003;
+  for (const lane of state.lanes) for (const b of lane.bands) {
+    b.est = C.fit.predict(b.rf);
+    b.extrap = b.rf < C.fit.minX - pad || b.rf > C.fit.maxX + pad;
+  }
+}
+
+/* ==========================================================================
+   9. RENDERING
+   ========================================================================== */
+
+/* ---- invalidation & frame scheduling ---- */
+const dirty = new Set(); let rafId = 0;
+function invalidate(...keys) { keys.forEach(k => dirty.add(k)); if (!rafId) rafId = requestAnimationFrame(flush); }
+function flush() {
+  rafId = 0;
+  const d = new Set(dirty); dirty.clear();
+  if (d.has('analysis')) { analyzeAll(); calibrate(); ['table', 'calib', 'gel', 'profile', 'badges', 'laneUI'].forEach(k => d.add(k)); }
+  if (d.has('laneUI')) refreshLaneUI();
+  if (d.has('table')) renderTable(); else if (d.has('tableSel')) markTableSelection();
+  if (d.has('calib')) renderCalibUI();
+  if (d.has('gel')) drawGel();
+  if (d.has('profile')) drawProfile();
+  if (d.has('badges')) updateBadges();
+}
+
+/** Set up a HiDPI canvas that tracks its CSS box size. */
+function observeCanvas(obj, onResize) {
+  const ro = new ResizeObserver(() => {
+    const r = obj.canvas.getBoundingClientRect();
+    obj.dpr = window.devicePixelRatio || 1; obj.w = r.width; obj.h = r.height;
+    obj.canvas.width = Math.max(1, Math.round(r.width * obj.dpr));
+    obj.canvas.height = Math.max(1, Math.round(r.height * obj.dpr));
+    onResize && onResize();
+  });
+  ro.observe(obj.canvas);
+}
+
+/** Band label for overlays. mode: 'size' | 'num'. */
+function bandLabel(L, b, bi, mode) {
+  if (mode === 'num') return String(bi + 1);
+  if (L.isLadder) return b.size > 0 ? fmtBp(b.size) : '';
+  if (b.est > 0) return (b.extrap ? '~' : '') + fmtBp(b.est);
+  return '';
+}
+
+function drawText(ctx, txt, x, y, u, color, { align = 'center', base = 'alphabetic', weight = 600, size = 10.5 } = {}) {
+  ctx.font = `${weight} ${size * u}px ${getComputedStyle(document.body).fontFamily}`;
+  ctx.textAlign = align; ctx.textBaseline = base;
+  ctx.lineWidth = 3 * u; ctx.strokeStyle = 'rgba(0,0,0,.82)'; ctx.lineJoin = 'round';
+  ctx.strokeText(txt, x, y);
+  ctx.fillStyle = color; ctx.fillText(txt, x, y);
+}
+
+/**
+ * Draw lane/band overlays. `map(x,y)` converts image px → output coordinates and
+ * `u` scales line widths/fonts, so the same code serves the screen and PNG export.
+ */
+function drawOverlays(ctx, map, o) {
+  const u = o.u, W = state.img.width, selB = o.interactive ? findSelBand() : null;
+  ctx.save(); ctx.lineCap = 'round';
+
+  if (o.guides) {
+    const strong = o.step === 2;
+    [[state.wellY, COLORS.well, 'Wells'], [state.frontY, COLORS.front, 'Dye front']].forEach(([y, col, name]) => {
+      const a = map(0, y), b = map(W, y);
+      ctx.setLineDash([6 * u, 5 * u]); ctx.strokeStyle = hexA(col, strong ? 0.95 : 0.4); ctx.lineWidth = (strong ? 1.6 : 1) * u;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+      if (strong) drawText(ctx, name, a.x + 6 * u, a.y - 5 * u, u, col, { align: 'left', size: 10.5 });
+    });
+  }
+
+  state.lanes.forEach((L, li) => {
+    const sel = o.interactive && L === state.sel;
+    const col = L.isLadder ? COLORS.ladder : COLORS.lane;
+    const yT = laneTop(L), yB = laneBot(L), hw = L.width / 2;
+    if (o.lanes) {
+      const a = map(L.xTop - hw, yT), b = map(L.xTop + hw, yT), c = map(L.xBot + hw, yB), d = map(L.xBot - hw, yB);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(c.x, c.y); ctx.lineTo(d.x, d.y); ctx.closePath();
+      if (sel) { ctx.fillStyle = hexA(col, 0.07); ctx.fill(); }
+      ctx.setLineDash(o.interactive && o.step !== 2 && !sel ? [4 * u, 4 * u] : []);
+      ctx.strokeStyle = hexA(col, sel ? 0.95 : o.interactive ? (o.step === 2 ? 0.7 : 0.4) : 0.75);
+      ctx.lineWidth = (sel ? 1.8 : 1) * u; ctx.stroke(); ctx.setLineDash([]);
+    }
+    if (o.nums) {
+      const t = map(L.xTop, yT);
+      drawText(ctx, `${li + 1}${L.isLadder ? ' M' : ''}`, t.x, Math.max(t.y - 7 * u, 12 * u), u, sel ? '#fff' : col, { size: 11.5, weight: 700 });
+    }
+    if (o.interactive && o.step === 2) {
+      [[L.xTop, yT], [L.xBot, yB]].forEach(([x, y]) => {
+        const p = map(x, y);
+        ctx.beginPath(); ctx.arc(p.x, p.y, sel ? 5.5 : 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1.5; ctx.strokeStyle = '#0a0d12'; ctx.stroke();
+      });
+    }
+    if (o.bands) {
+      L.bands.forEach((b, bi) => {
+        const y = yT + b.rf * (yB - yT), cx = L.xTop + b.rf * (L.xBot - L.xTop);
+        const p = map(cx - hw, y), q = map(cx + hw, y), isSel = b === selB;
+        const bc = L.isLadder ? COLORS.ladder : b.manual ? COLORS.manual : COLORS.band;
+        ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = (isSel ? 4.5 : 3.4) * u;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        ctx.strokeStyle = isSel ? '#ffffff' : bc; ctx.lineWidth = (isSel ? 2.6 : 1.7) * u;
+        ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        if (o.labels) {
+          const txt = bandLabel(L, b, bi, o.labels);
+          if (!txt) return;
+          if (o.labels === 'num') drawText(ctx, txt, q.x + 4 * u, p.y, u, bc, { align: 'left', base: 'middle', size: 10 });
+          else drawText(ctx, txt, (p.x + q.x) / 2, p.y - 3.5 * u, u, isSel ? '#fff' : (b.extrap ? '#fde68a' : '#f8fafc'), { size: o.labelSize || 10 });
+        }
+      });
+    }
+  });
+
+  // Hover cursor from the electropherogram.
+  if (o.interactive && state.hover && state.hover.lane && state.lanes.includes(state.hover.lane)) {
+    const L = state.hover.lane, P = L.profile;
+    if (P) {
+      const rf = state.hover.idx / (P.n - 1), yT = laneTop(L), yB = laneBot(L);
+      const y = yT + rf * (yB - yT), cx = L.xTop + rf * (L.xBot - L.xTop);
+      const a = map(cx - L.width / 2 - 6, y), b = map(cx + L.width / 2 + 6, y);
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); ctx.setLineDash([]);
+    }
+  }
+  ctx.restore();
+}
+
+/** Main gel canvas. */
+function drawGel() {
+  const { ctx, canvas, dpr } = gel;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!state.img) return;
+  const v = state.view, { width: W, height: H } = state.img, capH = state.step === 5 ? captionHeight() : 0;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 24;
+  ctx.fillStyle = '#000'; ctx.fillRect(v.ox, v.oy, W * v.scale, (H + capH) * v.scale);
+  ctx.shadowBlur = 0;
+  ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * v.ox, dpr * v.oy);
+  ctx.imageSmoothingEnabled = v.scale < 2;
+  ctx.drawImage(state.dispCanvas, 0, 0);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (state.step === 5) {
+    drawComposition(ctx, v.scale, v.ox, v.oy);
+    drawAnnotSelection(ctx);
+    refreshExportUI();
+    return;
+  }
+  const step = state.step, hasFit = !!state.calib.fit;
+  drawOverlays(ctx, toScreen, {
+    u: 1, interactive: true, step,
+    guides: true, lanes: true, nums: true, bands: true,
+    labels: step === 3 ? 'num' : (step === 4 || (step === 1 && hasFit)) ? 'size' : null,
+  });
+}
+
+/* ---- Annotation composition (step 5) ----
+   Everything here is laid out in image-pixel units, then drawn with a scale k
+   (k = zoom on screen, k = export scale in a file), so the editor is WYSIWYG. */
+const FONT_STACKS = {
+  sans: 'Inter, "Helvetica Neue", Helvetica, Arial, sans-serif',
+  serif: '"Times New Roman", Times, Georgia, serif',
+  mono: 'ui-monospace, Menlo, Consolas, monospace',
+};
+const measureCtx = document.createElement('canvas').getContext('2d');
+const fontSpec = (px, bold) => `${bold ? 700 : 500} ${px}px ${FONT_STACKS[(state.annot.style || {}).font] || FONT_STACKS.sans}`;
+function textWidth(txt, size, bold) { measureCtx.font = fontSpec(100, bold); return measureCtx.measureText(txt).width * size / 100; }
+/** Dark text gets a white halo, light text a black one. */
+function haloFor(hex) {
+  const n = parseInt(String(hex).slice(1), 16);
+  const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+  return lum > 0.5 ? 'rgba(0,0,0,.85)' : 'rgba(255,255,255,.9)';
+}
+/** Whether the image as displayed is predominantly light (picks default annotation colours). */
+const imageLooksLight = () => (state.polarity === 'dark') !== !!state.display.invert;
+
+function defaultAnnotStyle() {
+  const base = Math.max(1, Math.max(state.img.width, state.img.height) / 1000), light = imageLooksLight();
+  return {
+    font: 'sans', bold: true, halo: true,
+    labelSize: Math.round(11 * base), labelColor: light ? '#111111' : '#ffffff',
+    laneSize: Math.round(12.5 * base), laneColor: light ? '#111111' : '#ffffff', laneAuto: true,
+    bandWidth: +(1.8 * base).toFixed(1), bandColor: light ? '#111111' : '#fbbf24', bandAuto: true,
+    laneLineWidth: +(1 * base).toFixed(1),
+  };
+}
+function resetAnnotations() {
+  const A = state.annot, base = Math.max(1, Math.max(state.img.width, state.img.height) / 1000);
+  const ink = imageLooksLight() ? '#111111' : '#ffffff';
+  A.style = defaultAnnotStyle();
+  A.items = []; A.sel = null; A.draft = null; A.caption = ''; A.undo = []; A.redo = [];
+  A.lineStyle = { dash: 'dashed', color: ink, width: Math.max(1, Math.round(2 * base)) };
+  A.textStyle = { size: Math.round(14 * base), color: ink, bold: true };
+  A.exp.scale = 1;
+  pendingSnap = null;
+  syncAnnotUI(); renderInspector();
+}
+
+function captionText() {
+  const A = state.annot;
+  if (A.caption.trim()) return A.caption.trim();
+  const C = state.calib, fit = C.fit, L = ladderLane();
+  if (!fit || !L) return '';
+  const preset = LADDER_PRESETS[C.preset] && LADDER_PRESETS[C.preset].sizes ? LADDER_PRESETS[C.preset].name : 'custom ladder';
+  const model = { linear: 'log-linear', quadratic: '2nd-order', cubic: '3rd-order', p2p: 'point-to-point' }[fit.model];
+  return `Ladder: lane ${laneIndex(L) + 1} (${preset}) · ${model} fit` + (fit.r2 != null ? ` · R² = ${fit.r2.toFixed(4)}` : '') + ' · ~ = extrapolated';
+}
+const captionHeight = () => (state.annot.style && state.annot.layers.caption && captionText() ? Math.round(state.annot.style.labelSize * 2.1) : 0);
+
+/** All drawable composition elements, in drawing order, in image-pixel coordinates. */
+function compositionElements() {
+  const A = state.annot, S = A.style, out = [];
+  if (!state.img || !S) return out;
+  state.lanes.forEach((L, li) => {
+    const yT = laneTop(L), yB = laneBot(L), hw = L.width / 2;
+    const laneCol = L.isLadder ? COLORS.ladder : COLORS.lane;
+    if (A.layers.lanes) out.push({ kind: 'laneBox', color: laneCol, pts: [[L.xTop - hw, yT], [L.xTop + hw, yT], [L.xBot + hw, yB], [L.xBot - hw, yB]] });
+    L.bands.forEach((b, bi) => {
+      const y = yT + b.rf * (yB - yT), cx = L.xTop + b.rf * (L.xBot - L.xTop);
+      if (A.layers.bands) out.push({ kind: 'bandLine', x1: cx - hw, x2: cx + hw, y, width: S.bandWidth, color: S.bandAuto ? (L.isLadder ? COLORS.ladder : COLORS.band) : S.bandColor });
+      if (!A.layers.labels) return;
+      const lab = b.lab || {}, auto = bandLabel(L, b, bi, 'size');
+      const text = lab.text ? lab.text : auto, size = lab.size || S.labelSize;
+      if (!text) return;
+      out.push({ kind: 'bandLabel', lane: L, band: b, text, size, bold: S.bold, hidden: !!lab.hidden, color: lab.color || S.labelColor,
+                 x: cx + (lab.dx || 0), y: y - S.bandWidth / 2 - 0.28 * size + (lab.dy || 0) });
+    });
+    if (A.layers.nums) {
+      const lab = L.numLab || {}, size = lab.size || S.laneSize;
+      out.push({ kind: 'laneLabel', lane: L, text: lab.text ? lab.text : `${li + 1}${L.isLadder ? ' M' : ''}`, size, bold: S.bold, hidden: !!lab.hidden,
+                 color: lab.color || (S.laneAuto ? laneCol : S.laneColor), x: L.xTop + (lab.dx || 0), y: Math.max(yT - 0.55 * size, size) + (lab.dy || 0) });
+    }
+  });
+  for (const it of A.items) {
+    if (it.type === 'text') out.push({ kind: 'text', item: it, text: it.text, size: it.size, bold: it.bold, color: it.color, x: it.x, y: it.y });
+    else out.push({ kind: 'line', item: it });
+  }
+  return out;
+}
+/** Bounding box of a text element (alphabetic baseline at e.y, centred on e.x). */
+function elBox(e) {
+  const w = textWidth(e.text, e.size, e.bold);
+  return { x0: e.x - w / 2, x1: e.x + w / 2, y0: e.y - 0.8 * e.size, y1: e.y + 0.25 * e.size };
+}
+const dashFor = (style, w) => style === 'dashed' ? [w * 4, w * 2.6] : style === 'dotted' ? [0.01, w * 2.2] : [];
+
+/** Draw the full annotated figure: image px (x,y) → (ox + x·k, oy + y·k). */
+function drawComposition(ctx, k, ox, oy) {
+  const A = state.annot, S = A.style; if (!S) return;
+  const M = (x, y) => [ox + x * k, oy + y * k], W = state.img.width, H = state.img.height;
+  ctx.save(); ctx.lineJoin = 'round';
+  for (const e of compositionElements()) {
+    if (e.hidden) continue;
+    switch (e.kind) {
+      case 'laneBox': {
+        ctx.beginPath(); e.pts.forEach(([x, y], i) => { const [px, py] = M(x, y); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); });
+        ctx.closePath(); ctx.strokeStyle = hexA(e.color, 0.75); ctx.lineWidth = Math.max(0.5, S.laneLineWidth * k); ctx.setLineDash([]); ctx.stroke();
+        break;
+      }
+      case 'bandLine': {
+        const [ax, ay] = M(e.x1, e.y), [bx] = M(e.x2, e.y);
+        ctx.lineCap = 'round'; ctx.setLineDash([]);
+        if (S.halo) { ctx.strokeStyle = haloFor(e.color).replace(/[\d.]+\)$/, '.5)'); ctx.lineWidth = e.width * k * 1.9; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, ay); ctx.stroke(); }
+        ctx.strokeStyle = e.color; ctx.lineWidth = Math.max(0.5, e.width * k); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, ay); ctx.stroke();
+        break;
+      }
+      case 'line': {
+        const it = e.item, [ax, ay] = M(it.x1, it.y1), [bx, by] = M(it.x2, it.y2), w = Math.max(0.5, it.width * k);
+        ctx.lineCap = it.dash === 'dotted' ? 'round' : 'butt'; ctx.setLineDash(dashFor(it.dash, w));
+        ctx.strokeStyle = it.color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]);
+        break;
+      }
+      default: {                                                        // bandLabel / laneLabel / text
+        const [x, y] = M(e.x, e.y), px = e.size * k;
+        ctx.font = fontSpec(px, e.bold); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+        if (S.halo) { ctx.lineWidth = Math.max(1, px * 0.22); ctx.strokeStyle = haloFor(e.color); ctx.setLineDash([]); ctx.strokeText(e.text, x, y); }
+        ctx.fillStyle = e.color; ctx.fillText(e.text, x, y);
+      }
+    }
+  }
+  const capH = captionHeight();
+  if (capH) {
+    const light = imageLooksLight(), [x0, y0] = M(0, H);
+    ctx.fillStyle = light ? '#ffffff' : '#0a0d12'; ctx.fillRect(x0, y0, W * k, capH * k);
+    ctx.font = fontSpec(S.labelSize * 0.95 * k, false); ctx.fillStyle = light ? '#1f2937' : '#cbd5e1';
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(captionText(), x0 + S.labelSize * 0.7 * k, y0 + capH * k / 2);
+  }
+  ctx.restore();
+}
+
+/** Selection outline / line handles on screen. */
+function drawAnnotSelection(ctx) {
+  const A = state.annot, v = state.view, S = (x, y) => [v.ox + x * v.scale, v.oy + y * v.scale];
+  ctx.save();
+  if (A.draft) {
+    const d = A.draft, [ax, ay] = S(d.x1, d.y1), [bx, by] = S(d.x2, d.y2), w = Math.max(0.5, d.width * v.scale);
+    ctx.lineCap = d.dash === 'dotted' ? 'round' : 'butt'; ctx.setLineDash(dashFor(d.dash, w));
+    ctx.strokeStyle = d.color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+  }
+  const sel = A.sel;
+  if (sel && sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    ctx.setLineDash([]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1;
+    const [ax, ay] = S(it.x1, it.y1), [bx, by] = S(it.x2, it.y2);
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
+    [[ax, ay], [bx, by]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 2; ctx.stroke(); });
+  } else if (sel && sel.kind !== 'caption') {
+    const e = elementForSel(sel);
+    if (e && !e.hidden) {
+      const b = elBox(e), [x0, y0] = S(b.x0, b.y0), [x1, y1] = S(b.x1, b.y1);
+      ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 - 3, y0 - 2, x1 - x0 + 6, y1 - y0 + 4);
+    }
+  } else if (sel && sel.kind === 'caption' && captionHeight()) {
+    const [x0, y0] = S(0, state.img.height), [x1, y1] = S(state.img.width, state.img.height + captionHeight());
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
+  }
+  ctx.restore();
+}
+
+/** Resolve a band selection to the current band object (bands are rebuilt on re-analysis). */
+function resolveBand(sel) {
+  if (sel.lane.bands.includes(sel.band)) return sel.band;
+  let best = null, bd = 0.006;
+  for (const b of sel.lane.bands) { const d = Math.abs(b.rf - sel.rf); if (d < bd) { bd = d; best = b; } }
+  if (best) sel.band = best;
+  return best;
+}
+function elementForSel(sel) {
+  if (!sel) return null;
+  const band = sel.kind === 'band' ? resolveBand(sel) : null;
+  return compositionElements().find(e =>
+    (sel.kind === 'item' && e.item === sel.item) ||
+    (sel.kind === 'band' && e.kind === 'bandLabel' && e.band === band) ||
+    (sel.kind === 'lane' && e.kind === 'laneLabel' && e.lane === sel.lane)) || null;
+}
+/** Label-override object for a selected band/lane label (created on demand). */
+function ensureLab(sel) {
+  if (sel.kind === 'lane') return (sel.lane.numLab = sel.lane.numLab || {});
+  const b = resolveBand(sel); if (!b) return {};
+  return (b.lab = b.lab || {});
+}
+
+/** Hit-test the composition at image point p (topmost first). */
+function annotHit(p) {
+  const A = state.annot, tol = 6 / state.view.scale;
+  const sel = A.sel;
+  if (sel && sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    if (Math.hypot(p.x - it.x1, p.y - it.y1) <= tol * 1.5) return { kind: 'end', item: it, end: 1 };
+    if (Math.hypot(p.x - it.x2, p.y - it.y2) <= tol * 1.5) return { kind: 'end', item: it, end: 2 };
+  }
+  const els = compositionElements();
+  for (let i = els.length - 1; i >= 0; i--) {
+    const e = els[i];
+    if (e.hidden) continue;
+    if (e.kind === 'line') {
+      const it = e.item, dx = it.x2 - it.x1, dy = it.y2 - it.y1, L2 = dx * dx + dy * dy || 1;
+      const t = clamp(((p.x - it.x1) * dx + (p.y - it.y1) * dy) / L2, 0, 1);
+      if (Math.hypot(p.x - (it.x1 + t * dx), p.y - (it.y1 + t * dy)) <= Math.max(tol, it.width / 2 + 2 / state.view.scale)) return { kind: 'item', item: it };
+    } else if (e.kind === 'text' || e.kind === 'bandLabel' || e.kind === 'laneLabel') {
+      const b = elBox(e);
+      if (p.x >= b.x0 - tol && p.x <= b.x1 + tol && p.y >= b.y0 - tol && p.y <= b.y1 + tol) {
+        if (e.kind === 'text') return { kind: 'item', item: e.item };
+        if (e.kind === 'bandLabel') return { kind: 'band', lane: e.lane, band: e.band, rf: e.band.rf };
+        return { kind: 'lane', lane: e.lane };
+      }
+    }
+  }
+  const capH = captionHeight(), H = state.img.height;
+  if (capH && p.y >= H && p.y <= H + capH && p.x >= 0 && p.x <= state.img.width) return { kind: 'caption' };
+  return null;
+}
+
+/* ---- Annotation undo / redo (JSON snapshots of everything the editor changes) ---- */
+let pendingSnap = null;
+function annotSnapshot() {
+  const A = state.annot;
+  return JSON.stringify({
+    items: A.items, style: A.style, layers: A.layers, caption: A.caption,
+    lanes: state.lanes.map(L => ({ id: L.id, lab: L.numLab || null, bands: L.bands.filter(b => b.lab).map(b => ({ rf: b.rf, lab: b.lab })) })),
+  });
+}
+function annotRestore(json) {
+  const s = JSON.parse(json), A = state.annot;
+  Object.assign(A, { items: s.items, style: s.style, layers: s.layers, caption: s.caption, sel: null });
+  for (const L of state.lanes) {
+    const ls = s.lanes.find(x => x.id === L.id);
+    L.numLab = ls ? ls.lab : null;
+    L.bands.forEach(b => { delete b.lab; });
+    if (ls) ls.bands.forEach(({ rf, lab }) => {
+      let best = null, bd = 0.01;
+      L.bands.forEach(b => { const d = Math.abs(b.rf - rf); if (d < bd) { bd = d; best = b; } });
+      if (best) best.lab = lab;
+    });
+  }
+  syncAnnotUI(); renderInspector(); invalidate('gel');
+}
+function pushUndo(snap) {
+  const A = state.annot;
+  A.undo.push(snap); if (A.undo.length > 100) A.undo.shift();
+  A.redo = []; updateUndoButtons();
+}
+/** Call before a change; endEdit() records an undo step if anything actually changed. */
+function beginEdit() { if (pendingSnap == null) pendingSnap = annotSnapshot(); }
+function endEdit() { if (pendingSnap != null) { if (pendingSnap !== annotSnapshot()) pushUndo(pendingSnap); pendingSnap = null; } }
+function undo() {
+  endEdit(); const A = state.annot; if (!A.undo.length) return;
+  A.redo.push(annotSnapshot()); annotRestore(A.undo.pop()); updateUndoButtons();
+}
+function redo() {
+  endEdit(); const A = state.annot; if (!A.redo.length) return;
+  A.undo.push(annotSnapshot()); annotRestore(A.redo.pop()); updateUndoButtons();
+}
+function updateUndoButtons() { $('#btnUndo').disabled = !state.annot.undo.length; $('#btnRedo').disabled = !state.annot.redo.length; }
+
+/* ---- Electropherogram ---- */
+const prof = { canvas: $('#profileCanvas'), ctx: $('#profileCanvas').getContext('2d'), w: 0, h: 0, dpr: 1, m: { l: 50, r: 14, t: 26, b: 30 } };
+
+function profileGeom() {
+  const L = state.sel, P = L && L.profile;
+  if (!P || !P.corr) return null;
+  const m = prof.m, pw = prof.w - m.l - m.r, ph = prof.h - m.t - m.b;
+  if (pw < 30 || ph < 30) return null;
+  const raw = state.profileMode === 'raw';
+  const series = raw ? P.raw : P.corr;
+  let ymax = arrMax(series), ymin = 0;
+  if (raw) { const lo = Math.min(arrMin(P.raw), arrMin(P.base)); ymin = Math.max(0, lo - (ymax - lo) * 0.06); }
+  ymax = ymax > ymin ? ymax + (ymax - ymin) * 0.1 : ymin + 1;
+  return {
+    L, P, m, pw, ph, ymin, ymax, series, raw,
+    X: i => m.l + (i / (P.n - 1)) * pw,
+    Y: v => m.t + ph - (v - ymin) / (ymax - ymin) * ph,
+    idxAt: sx => clamp(Math.round((sx - m.l) / pw * (P.n - 1)), 0, P.n - 1),
+  };
+}
+
+function drawProfile() {
+  const { ctx, w, h, dpr } = prof;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const legend = $('#profileLegend');
+  const G = state.img ? profileGeom() : null;
+  if (!G) {
+    legend.innerHTML = '';
+    ctx.fillStyle = COLORS.muted; ctx.font = `12px ${getComputedStyle(document.body).fontFamily}`; ctx.textAlign = 'center';
+    ctx.fillText(state.img ? 'Select a lane to view its densitometry profile.' : 'The lane intensity profile appears here.', w / 2, h / 2);
+    return;
+  }
+  const { L, P, m, pw, ph, X, Y, ymin, ymax, series, raw } = G, n = P.n;
+  legend.innerHTML = raw
+    ? `<span><i style="background:#cbd5e1"></i>Raw</span><span><i style="background:${COLORS.front}"></i>Baseline</span><span><i style="background:${hexA(COLORS.band, .6)}"></i>Integrated area</span>`
+    : `<span><i style="background:${COLORS.lane}"></i>Baseline-corrected</span><span><i style="background:${hexA(COLORS.band, .6)}"></i>Integrated area</span>`;
+
+  const font = getComputedStyle(document.body).fontFamily;
+  // Grid & axes
+  ctx.font = `10.5px ${font}`; ctx.fillStyle = COLORS.muted; ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 0; k <= 10; k++) {
+    const x = m.l + pw * k / 10;
+    ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke();
+    ctx.fillText((k / 10).toFixed(1), x, m.t + ph + 5);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  for (const t of niceTicks(ymin, ymax, 4)) {
+    const y = Y(t); if (y < m.t - 1 || y > m.t + ph + 1) continue;
+    ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(m.l + pw, y); ctx.stroke();
+    ctx.fillText(t >= 100 ? t.toFixed(0) : t.toFixed(t >= 10 ? 0 : 1), m.l - 6, y);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'alphabetic'; ctx.fillStyle = COLORS.muted;
+  ctx.fillText('Rf (well → dye front)', m.l + pw, h - 3);
+  ctx.save(); ctx.translate(12, m.t + ph / 2); ctx.rotate(-Math.PI / 2); ctx.textAlign = 'center';
+  ctx.fillText('Intensity', 0, 0); ctx.restore();
+
+  // Integrated band areas
+  ctx.save(); ctx.beginPath(); ctx.rect(m.l, m.t, pw, ph); ctx.clip();
+  const selB = findSelBand();
+  L.bands.forEach(b => {
+    const col = L.isLadder ? COLORS.ladder : b.manual ? COLORS.manual : COLORS.band;
+    ctx.beginPath();
+    if (raw) {
+      ctx.moveTo(X(b.l), Y(P.raw[b.l]));
+      for (let i = b.l; i <= b.r; i++) ctx.lineTo(X(i), Y(Math.max(P.raw[i], P.base[i])));
+      for (let i = b.r; i >= b.l; i--) ctx.lineTo(X(i), Y(P.base[i]));
+    } else {
+      ctx.moveTo(X(b.l), Y(0));
+      for (let i = b.l; i <= b.r; i++) ctx.lineTo(X(i), Y(P.corr[i]));
+      ctx.lineTo(X(b.r), Y(0));
+    }
+    ctx.closePath(); ctx.fillStyle = hexA(col, b === selB ? 0.45 : 0.26); ctx.fill();
+  });
+  // Curves
+  const line = (arr, color, width, dash) => {
+    ctx.beginPath(); for (let i = 0; i < n; i++) { const x = X(i), y = Y(arr[i]); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+    ctx.setLineDash(dash || []); ctx.strokeStyle = color; ctx.lineWidth = width; ctx.stroke(); ctx.setLineDash([]);
+  };
+  if (raw) { line(P.raw, '#cbd5e1', 1.3); line(P.base, COLORS.front, 1.4, [5, 4]); }
+  else {
+    ctx.beginPath(); ctx.moveTo(X(0), Y(0));
+    for (let i = 0; i < n; i++) ctx.lineTo(X(i), Y(P.corr[i]));
+    ctx.lineTo(X(n - 1), Y(0)); ctx.closePath(); ctx.fillStyle = hexA(COLORS.lane, 0.08); ctx.fill();
+    line(P.corr, COLORS.lane, 1.4);
+  }
+  ctx.restore();
+
+  // Band markers with number badges and rotated size labels
+  L.bands.forEach((b, bi) => {
+    const col = L.isLadder ? COLORS.ladder : b.manual ? COLORS.manual : COLORS.band;
+    const x = X(b.pos), i = clamp(Math.round(b.pos), 0, n - 1), yv = Y(raw ? P.raw[i] : P.corr[i]);
+    ctx.setLineDash([2, 3]); ctx.strokeStyle = hexA(col, 0.8); ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, m.t + 9); ctx.lineTo(x, yv); ctx.stroke(); ctx.setLineDash([]);
+    ctx.beginPath(); ctx.arc(x, m.t + 2, 7.5, 0, Math.PI * 2);
+    ctx.fillStyle = b === selB ? '#fff' : col; ctx.fill();
+    ctx.fillStyle = '#0a0d12'; ctx.font = `700 9.5px ${font}`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(String(bi + 1), x, m.t + 2.5);
+    const lab = bandLabel(L, b, bi, 'size');
+    if (lab && ph > 70) {
+      ctx.save(); ctx.translate(x + 4, m.t + 13); ctx.rotate(Math.PI / 2);
+      ctx.font = `600 10px ${font}`; ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(10,13,18,.9)'; ctx.strokeText(lab, 0, 0);
+      ctx.fillStyle = col; ctx.fillText(lab, 0, 0); ctx.restore();
+    }
+  });
+
+  // Hover crosshair & readout
+  if (state.hover && state.hover.lane === L) {
+    const i = state.hover.idx, x = X(i);
+    ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, Y(series[i]), 3.5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill();
+    const rf = i / (n - 1);
+    const parts = [`Rf ${rf.toFixed(3)}`, `${i} px`, `raw ${P.raw[i].toFixed(1)}`, `corr ${P.corr[i].toFixed(1)}`];
+    if (state.calib.fit) parts.push('≈ ' + fmtBp(state.calib.fit.predict(rf)));
+    const txt = parts.join('  ·  ');
+    ctx.font = `600 10.5px ${font}`;
+    const tw = ctx.measureText(txt).width + 14, tx = clamp(x + 10, m.l, m.l + pw - tw), ty = m.t + 12;
+    ctx.fillStyle = 'rgba(17,24,33,.94)'; ctx.strokeStyle = '#2e3c4f';
+    ctx.beginPath(); ctx.roundRect ? ctx.roundRect(tx, ty, tw, 20, 5) : ctx.rect(tx, ty, tw, 20); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = COLORS.text; ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(txt, tx + 7, ty + 10.5);
+  }
+}
+
+/* ---- Standard curve ---- */
+const curve = { canvas: $('#curveCanvas'), ctx: $('#curveCanvas').getContext('2d'), w: 0, h: 0, dpr: 1 };
+const BP_TICKS = [10, 20, 25, 50, 75, 100, 150, 200, 250, 300, 400, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000, 7500, 10000, 15000, 20000, 25000, 50000];
+const BP_TICKS_SPARSE = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000];
+
+function drawCurve() {
+  const { ctx, w, h, dpr } = curve;
+  if (!w || !h) return;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, w, h);
+  const C = state.calib, fit = C.fit, font = getComputedStyle(document.body).fontFamily;
+  const m = { l: 48, r: 10, t: 12, b: 30 }, pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const sizes = C.sizes.length ? C.sizes : [100, 10000];
+  const lo = Math.log10(Math.min(...sizes)) - 0.12, hi = Math.log10(Math.max(...sizes)) + 0.12;
+  const X = x => m.l + x * pw, Y = v => m.t + ph - (v - lo) / (hi - lo) * ph;
+
+  ctx.font = `10px ${font}`; ctx.strokeStyle = COLORS.grid; ctx.fillStyle = COLORS.muted; ctx.lineWidth = 1;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (let k = 0; k <= 5; k++) { const x = X(k / 5); ctx.beginPath(); ctx.moveTo(x, m.t); ctx.lineTo(x, m.t + ph); ctx.stroke(); ctx.fillText((k / 5).toFixed(1), x, m.t + ph + 4); }
+  let ticks = BP_TICKS.filter(t => Math.log10(t) >= lo && Math.log10(t) <= hi);
+  if (ticks.length > 8) ticks = BP_TICKS_SPARSE.filter(t => Math.log10(t) >= lo && Math.log10(t) <= hi);
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ticks.forEach(t => { const y = Y(Math.log10(t)); ctx.beginPath(); ctx.moveTo(m.l, y); ctx.lineTo(m.l + pw, y); ctx.stroke(); ctx.fillText(t >= 1000 ? (t / 1000) + 'k' : String(t), m.l - 5, y); });
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic'; ctx.fillText('Rf', m.l + pw / 2, h - 3);
+  ctx.save(); ctx.translate(11, m.t + ph / 2); ctx.rotate(-Math.PI / 2); ctx.fillText('Size (bp, log scale)', 0, 0); ctx.restore();
+
+  if (!C.points.length) {
+    ctx.fillStyle = COLORS.muted; ctx.textAlign = 'center'; ctx.font = `11px ${font}`;
+    ctx.fillText('Assign a ladder lane to build the curve', m.l + pw / 2, m.t + ph / 2);
+    return;
+  }
+  ctx.save(); ctx.beginPath(); ctx.rect(m.l, m.t, pw, ph); ctx.clip();
+  if (fit) {
+    const seg = (a, b, dash) => {
+      ctx.beginPath();
+      for (let k = 0; k <= 80; k++) { const x = a + (b - a) * k / 80, px = X(x), py = Y(fit.logf(x)); k ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+      ctx.setLineDash(dash); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.8; ctx.stroke(); ctx.setLineDash([]);
+    };
+    seg(0, fit.minX, [4, 4]); seg(fit.minX, fit.maxX, []); seg(fit.maxX, 1, [4, 4]);
+    // Sample-band estimates sit on the curve.
+    state.lanes.forEach(L => { if (L.isLadder) return; L.bands.forEach(b => {
+      if (!(b.est > 0)) return;
+      const x = X(b.rf), y = Y(Math.log10(b.est));
+      ctx.beginPath(); ctx.moveTo(x, y - 4); ctx.lineTo(x + 4, y); ctx.lineTo(x, y + 4); ctx.lineTo(x - 4, y); ctx.closePath();
+      ctx.fillStyle = hexA(b.extrap ? COLORS.front : COLORS.band, 0.9); ctx.fill();
+    }); });
+  }
+  C.points.forEach(p => {
+    ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), 3.8, 0, Math.PI * 2);
+    ctx.fillStyle = COLORS.ladder; ctx.fill(); ctx.strokeStyle = '#0a0d12'; ctx.lineWidth = 1.2; ctx.stroke();
+  });
+  ctx.restore();
+}
+
+/* ==========================================================================
+   10. UI PANELS, TABLES & BINDINGS
+   ========================================================================== */
+let toastTimer = 0;
+function toast(msg, kind = '') {
+  const t = $('#toast'); t.textContent = msg; t.className = 'toast show ' + kind;
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.className = 'toast'; }, 3200);
+}
+
+const STEP_HINTS = {
+  1: '<b>Image</b>: scroll to zoom · drag to pan · adjust display, then continue to Lanes',
+  2: '<b>Lanes</b>: drag lanes · <b>●</b> handles fix smile/slant · drag edges to resize · drag dashed lines for wells/front',
+  3: '<b>Bands</b>: click the selected lane to add a band · right-click a band to delete · drag a band to move',
+  4: '<b>Calibration</b>: sizes are interpolated from the ladder standard curve · continue to Annotate &amp; Export',
+  5: '<b>Annotate</b>: drag labels to move · <kbd>L</kbd> line · <kbd>T</kbd> text · <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo',
+};
+function goStep(n) {
+  if (state.step === 5 && n !== 5) { endEdit(); setTool('select'); }
+  state.step = n;
+  $$('.step').forEach(b => b.classList.toggle('active', +b.dataset.step === n));
+  $$('.panel').forEach(p => p.classList.toggle('active', +p.dataset.panel === n));
+  $('#modeHint').innerHTML = STEP_HINTS[n];
+  $('#stHint').textContent = ['Image', 'Lanes', 'Bands', 'Calibration & results', 'Annotate & export'][n - 1] + ' mode';
+  $('#sidebar').scrollTop = 0;
+  if (n === 5) { flush(); syncAnnotUI(); renderInspector(); }
+  invalidate('gel', 'profile', 'calib');
+}
+
+function updateImageMeta() {
+  const im = state.img;
+  if (!im) { $('#imgMeta').textContent = 'No image loaded'; $('#stImg').textContent = 'no image'; return; }
+  const B = state.base;
+  $('#imgMeta').innerHTML = `${escapeHtml(state.fileName)}<br>${B.origW} × ${B.origH} px · ${B.bits}-bit ${im.rgba ? 'RGB' : 'grayscale'}`
+    + (B.scaled ? `<br><span style="color:var(--warn)">Working copy ${im.width} × ${im.height} px (over ${MAX_PIXELS / 1e6} MP limit)</span>` : '');
+  $('#stImg').textContent = `${im.width}×${im.height}`;
+}
+
+function updateBadges() {
+  const nb = state.lanes.reduce((s, L) => s + L.bands.length, 0);
+  $('#badge2').textContent = state.img ? state.lanes.length : '';
+  $('#badge3').textContent = state.img ? nb : '';
+  const f = state.calib.fit;
+  $('#badge4').textContent = f ? (f.r2 != null ? `R² ${f.r2.toFixed(3)}` : '✓') : '';
+  $('#bandStats').textContent = state.img ? `${nb} bands in ${state.lanes.length} lanes · ${state.lanes.reduce((s, L) => s + L.manual.length, 0)} manual · ${state.lanes.reduce((s, L) => s + L.rejected.length, 0)} rejected` : '';
+}
+
+/** Push state values into sidebar controls (after load / layout changes). */
+function syncControls() {
+  if (!state.img) return;
+  const H = state.img.height;
+  ['#wellY', '#frontY'].forEach(s => { $(s).max = H; });
+  $('#wellY').value = state.wellY; $('#wellYOut').textContent = Math.round(state.wellY) + ' px';
+  $('#frontY').value = state.frontY; $('#frontYOut').textContent = Math.round(state.frontY) + ' px';
+  const maxW = Math.max(20, Math.round(state.img.width / 2));
+  ['#globalWidth', '#laneWidth'].forEach(s => { $(s).max = maxW; });
+  $$('#polaritySeg button').forEach(b => b.classList.toggle('on', b.dataset.v === state.polarity));
+}
+
+function refreshLaneUI() {
+  const opts = state.lanes.map((L, i) => `<option value="${i}">Lane ${i + 1}${L.isLadder ? ' (ladder)' : ''}</option>`).join('');
+  const ls = $('#laneSelect');
+  ls.innerHTML = opts || '<option>—</option>';
+  const si = laneIndex(state.sel);
+  if (si >= 0) ls.value = si;
+  $('#ladderSelect').innerHTML = '<option value="-1">None</option>' + state.lanes.map((L, i) => `<option value="${i}">Lane ${i + 1}</option>`).join('');
+  $('#ladderSelect').value = laneIndex(ladderLane());
+  const L = state.sel;
+  $('#selLaneName').textContent = L ? `Lane ${si + 1}${L.isLadder ? ' · ladder' : ''}` : '—';
+  $('#isLadder').checked = !!(L && L.isLadder);
+  $('#isLadder').disabled = !L;
+  if (L) { $('#laneWidth').value = Math.round(L.width); $('#laneWidthOut').textContent = Math.round(L.width) + ' px'; }
+  if (state.lanes.length) {
+    const mw = Math.round(median(state.lanes.map(l => l.width)));
+    $('#globalWidth').value = mw; $('#globalWidthOut').textContent = mw + ' px';
+  }
+  ['#btnDelLane', '#btnStraighten', '#laneWidth'].forEach(s => $(s).disabled = !L);
+}
+
+function renderTable() {
+  const tb = $('#resultsBody');
+  if (!state.img) { tb.innerHTML = '<tr class="empty-row"><td colspan="8">Load an image to begin.</td></tr>'; $('#tableCount').textContent = ''; return; }
+  const rows = []; let n = 0;
+  state.lanes.forEach((L, li) => {
+    const total = L.bands.reduce((s, b) => s + b.area, 0) || 1;
+    L.bands.forEach((b, bi) => {
+      n++;
+      let size;
+      if (L.isLadder) size = b.size > 0 ? `<span class="std">${b.size}</span>` : '—';
+      else size = b.est > 0 ? `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'Extrapolated beyond the ladder range' : ''}">${b.extrap ? '~' : ''}${Math.round(b.est)}</span>` : '—';
+      rows.push(`<tr data-l="${li}" data-b="${bi}" class="${L.isLadder ? 'ladder' : ''}"><td>${li + 1}${L.isLadder ? '<span class="tag">M</span>' : ''}</td><td>${bi + 1}${b.manual ? '<span class="tag m">man</span>' : ''}</td><td>${b.pos.toFixed(1)}</td><td>${b.rf.toFixed(4)}</td><td>${size}</td><td>${b.height.toFixed(1)}</td><td>${b.area.toFixed(0)}</td><td>${(100 * b.area / total).toFixed(1)}</td></tr>`);
+    });
+  });
+  tb.innerHTML = rows.join('') || '<tr class="empty-row"><td colspan="8">No bands detected. Lower the prominence or noise thresholds in step 3.</td></tr>';
+  $('#tableCount').textContent = n ? `${n} bands` : '';
+  markTableSelection();
+}
+function markTableSelection() {
+  const si = laneIndex(state.sel), sb = findSelBand(), sbi = sb && state.sel ? state.sel.bands.indexOf(sb) : -1;
+  $$('#resultsBody tr[data-l]').forEach(tr => {
+    const l = +tr.dataset.l, b = +tr.dataset.b;
+    tr.classList.toggle('lane-sel', l === si);
+    tr.classList.toggle('sel', l === si && b === sbi);
+  });
+}
+
+function renderCalibUI() {
+  const C = state.calib, L = ladderLane(), fit = C.fit;
+  // Preset & sizes (don't clobber the textarea while the user is typing in it)
+  $('#ladderPreset').value = C.preset;
+  if (document.activeElement !== $('#ladderSizes')) $('#ladderSizes').value = C.sizes.join(', ');
+  if (document.activeElement !== $('#ladderOffset')) $('#ladderOffset').value = C.offset;
+  $('#fitModel').value = C.model;
+  const w = $('#calibWarn'); w.textContent = C.warning; w.classList.toggle('show', !!C.warning);
+
+  // Ladder assignment table
+  const body = $('#ladderBody');
+  if (!L) body.innerHTML = '<tr><td colspan="5" class="muted" style="font-family:var(--sans)">No ladder lane selected.</td></tr>';
+  else if (!L.bands.length) body.innerHTML = '<tr><td colspan="5" class="muted" style="font-family:var(--sans)">No bands in the ladder lane.</td></tr>';
+  else {
+    body.innerHTML = L.bands.map((b, i) => {
+      const options = C.sizes.map(s => `<option value="${s}"${b.size === s ? ' selected' : ''}>${s}</option>`).join('');
+      let fitted = '', err = '', cls = '';
+      if (fit && b.est > 0) {
+        fitted = Math.round(b.est);
+        if (b.size > 0) { const e = 100 * (b.est - b.size) / b.size; err = (e > 0 ? '+' : '') + e.toFixed(1) + '%'; cls = Math.abs(e) < 3 ? 'err-ok' : Math.abs(e) < 8 ? 'err-mid' : 'err-bad'; }
+      }
+      return `<tr><td>${i + 1}</td><td>${b.rf.toFixed(3)}</td><td><select data-i="${i}" aria-label="Size for ladder band ${i + 1}"><option value="">—</option>${options}</select></td><td>${fitted}</td><td class="${cls}">${err}</td></tr>`;
+    }).join('');
+  }
+  // Fit statistics
+  const fs = $('#fitStats');
+  if (!fit) fs.innerHTML = C.points.length ? 'Not enough points to fit.' : 'No calibration yet.';
+  else {
+    const names = { linear: 'Log-linear', quadratic: '2nd-order polynomial', cubic: '3rd-order polynomial', p2p: 'Point-to-point' };
+    fs.innerHTML = (fit.r2 != null ? `<span class="r2">R² = <b>${fit.r2.toFixed(5)}</b></span><br>` : '<span class="r2">Interpolating (R² n/a)</span><br>')
+      + `${names[fit.model]} · n = ${fit.n} ladder bands${fit.deg && fit.deg < ({ quadratic: 2, cubic: 3 }[fit.model] || 1) ? ` (reduced to order ${fit.deg})` : ''}<br>`
+      + `${escapeHtml(fit.eq)}<br>`
+      + `Calibrated Rf range ${fit.minX.toFixed(3)}–${fit.maxX.toFixed(3)} (${fmtBp(fit.predict(fit.maxX))} – ${fmtBp(fit.predict(fit.minX))})`
+      + (fit.r2 != null ? `<br>RMSE (log₁₀) ${fit.rmse.toFixed(4)}` : '');
+  }
+  if (state.step === 4) drawCurve();
+}
+
+/** Bind a range input to a setter, with a formatted <output>. */
+function bindRange(id, set, fmt = v => v, event = 'input') {
+  const el = $('#' + id), out = $('#' + id + 'Out');
+  const show = () => { if (out) out.textContent = fmt(+el.value); };
+  el.addEventListener('input', show);
+  el.addEventListener(event, () => set(+el.value));
+  show();
+}
+
+function initUI() {
+  // Workflow steps
+  $$('.step').forEach(b => b.addEventListener('click', () => goStep(+b.dataset.step)));
+  $$('[data-goto]').forEach(b => b.addEventListener('click', () => goStep(+b.dataset.goto)));
+
+  // File loading
+  const fi = $('#fileInput');
+  fi.addEventListener('change', () => { loadFile(fi.files[0]); fi.value = ''; });
+  ['#dropSmall', '#emptyBox'].forEach(s => {
+    $(s).addEventListener('click', e => { if (e.target.closest('#btnDemo2')) return; fi.click(); });
+    $(s).addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fi.click(); } });
+  });
+  $('#btnDemo').addEventListener('click', loadDemo);
+  $('#btnDemo2').addEventListener('click', e => { e.stopPropagation(); loadDemo(); });
+  let dragDepth = 0;
+  window.addEventListener('dragenter', e => { if (e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) { dragDepth++; $('#dragVeil').classList.add('show'); } });
+  window.addEventListener('dragleave', () => { dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#dragVeil').classList.remove('show'); });
+  window.addEventListener('dragover', e => e.preventDefault());
+  window.addEventListener('drop', e => {
+    e.preventDefault(); dragDepth = 0; $('#dragVeil').classList.remove('show');
+    const f = e.dataTransfer && e.dataTransfer.files[0]; if (f) loadFile(f);
+  });
+  window.addEventListener('paste', e => {
+    const item = Array.from((e.clipboardData || {}).items || []).find(i => i.type.startsWith('image/'));
+    if (item) { const f = item.getAsFile(); if (f) loadFile(new File([f], 'pasted_gel.png', { type: f.type })); }
+  });
+
+  // Display
+  $('#invert').addEventListener('change', e => { state.display.invert = e.target.checked; renderDisplay(); });
+  bindRange('brightness', v => { state.display.brightness = v; renderDisplayThrottled(); });
+  bindRange('contrast', v => { state.display.contrast = v; renderDisplayThrottled(); });
+  bindRange('gamma', v => { state.display.gamma = v; renderDisplayThrottled(); }, v => v.toFixed(2));
+  $('#btnResetDisplay').addEventListener('click', () => {
+    Object.assign(state.display, { invert: false, brightness: 0, contrast: 0, gamma: 1, lo: 0, hi: 255 });
+    syncDisplayControls();
+    if (state.img && state.img.bits > 8) autoLevels(true);
+    renderDisplay();
+  });
+  $$('#polaritySeg button').forEach(b => b.addEventListener('click', () => {
+    state.polarity = b.dataset.v;
+    $$('#polaritySeg button').forEach(x => x.classList.toggle('on', x === b));
+    $('#polarityHint').textContent = state.polarity === 'bright' ? 'Bands are brighter than the background (fluorescent stains under UV/blue light).' : 'Bands are darker than the background (colorimetric stains, or inverted images).';
+    if (state.img) { state.lanes.forEach(invalidateLane); invalidate('analysis'); }
+  }));
+  $('#rotL').addEventListener('click', () => reorient('ccw'));
+  $('#rotR').addEventListener('click', () => reorient('cw'));
+  $('#flipH').addEventListener('click', () => reorient('flip'));
+  bindRange('fineRot', v => { state.fineRotation = v; reorient('fine'); }, v => v.toFixed(1) + '°', 'change');
+  $('#btnAutoLevels').addEventListener('click', () => autoLevels(false));
+
+  // Lanes
+  $('#btnGrid').addEventListener('click', () => {
+    if (!state.img) return toast('Load an image first.');
+    generateGrid(+$('#laneCount').value); invalidate('analysis', 'laneUI');
+    toast(`Generated a grid of ${state.lanes.length} lanes.`);
+  });
+  $('#btnAutoLanes').addEventListener('click', () => {
+    if (!state.img) return toast('Load an image first.');
+    autoDetectLanes($('#forceCount').checked ? +$('#laneCount').value : 0, false);
+    invalidate('analysis', 'laneUI');
+  });
+  bindRange('globalWidth', v => { state.lanes.forEach(L => { L.width = v; invalidateLane(L); }); invalidate('analysis'); }, v => v + ' px');
+  bindRange('laneWidth', v => { if (state.sel) { state.sel.width = v; invalidateLane(state.sel); invalidate('analysis'); } }, v => v + ' px');
+  bindRange('wellY', v => {
+    if (!state.img) return;
+    state.wellY = Math.min(v, state.frontY - 10); state.lanes.forEach(invalidateLane); invalidate('analysis');
+  }, v => v + ' px');
+  bindRange('frontY', v => {
+    if (!state.img) return;
+    state.frontY = Math.max(v, state.wellY + 10); state.lanes.forEach(invalidateLane); invalidate('analysis');
+  }, v => v + ' px');
+  $('#isLadder').addEventListener('change', e => setLadder(e.target.checked ? state.sel : null));
+  $('#btnAddLane').addEventListener('click', addLane);
+  $('#btnDelLane').addEventListener('click', () => deleteLane(state.sel));
+  $('#btnStraighten').addEventListener('click', () => {
+    const L = state.sel; if (!L) return;
+    const x = (L.xTop + L.xBot) / 2; L.xTop = L.xBot = x; L.dyTop = L.dyBot = 0; invalidateLane(L); invalidate('analysis');
+  });
+
+  // Bands
+  $('#baselineMethod').addEventListener('change', e => {
+    state.detect.baseline = e.target.value;
+    $('#ballField').style.display = e.target.value === 'rollingball' ? '' : 'none';
+    invalidate('analysis');
+  });
+  bindRange('ballRadius', v => { state.detect.ballRadius = v; invalidate('analysis'); }, v => v + ' px');
+  bindRange('smoothing', v => { state.detect.smoothing = v; invalidate('analysis'); }, v => v ? v.toFixed(1) + ' px' : 'off');
+  bindRange('prominence', v => { state.detect.prominence = v; invalidate('analysis'); }, v => v + '%');
+  bindRange('noise', v => { state.detect.noise = v; invalidate('analysis'); }, v => v + '%');
+  bindRange('minDistance', v => { state.detect.minDistance = v; invalidate('analysis'); }, v => v + ' px');
+  bindRange('edgeExclude', v => { state.detect.edgeExclude = v; invalidate('analysis'); }, v => v + '%');
+  $('#btnClearLane').addEventListener('click', () => {
+    if (!state.sel) return; state.sel.manual = []; state.sel.rejected = []; invalidate('analysis');
+    toast(`Manual edits cleared for lane ${laneIndex(state.sel) + 1}.`);
+  });
+  $('#btnClearAll').addEventListener('click', () => {
+    state.lanes.forEach(L => { L.manual = []; L.rejected = []; }); invalidate('analysis');
+    toast('All manual band edits discarded; bands re-detected.');
+  });
+
+  // Calibration
+  $('#ladderPreset').innerHTML = Object.entries(LADDER_PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('');
+  $('#ladderPreset').addEventListener('change', e => {
+    const p = LADDER_PRESETS[e.target.value];
+    state.calib.preset = e.target.value;
+    if (p.sizes) { state.calib.sizes = p.sizes.slice(); $('#ladderSizes').value = p.sizes.join(', '); }
+    state.calib.assignMode = 'auto'; invalidate('analysis');
+  });
+  $('#ladderSizes').addEventListener('input', debounce(e => {
+    const sizes = parseSizes(e.target.value);
+    state.calib.sizes = sizes;
+    const match = Object.entries(LADDER_PRESETS).find(([, p]) => p.sizes && p.sizes.join() === sizes.join());
+    state.calib.preset = match ? match[0] : 'custom';
+    state.calib.assignMode = 'auto'; invalidate('analysis');
+  }, 350));
+  $('#ladderSizes').addEventListener('blur', () => invalidate('calib'));
+  $('#ladderOffset').addEventListener('input', e => { state.calib.offset = clamp(+e.target.value || 0, 0, 50); state.calib.assignMode = 'auto'; invalidate('analysis'); });
+  $('#btnAutoAssign').addEventListener('click', () => { state.calib.assignMode = 'auto'; invalidate('analysis'); toast('Ladder sizes assigned from the top band (largest) down.'); });
+  $('#ladderSelect').addEventListener('change', e => setLadder(state.lanes[+e.target.value] || null));
+  $('#ladderBody').addEventListener('change', e => {
+    const sel = e.target.closest('select[data-i]'); const L = ladderLane();
+    if (!sel || !L) return;
+    const b = L.bands[+sel.dataset.i]; if (!b) return;
+    state.calib.assignMode = 'manual';
+    b.size = sel.value ? +sel.value : null;
+    invalidate('analysis');
+  });
+  $('#fitModel').addEventListener('change', e => { state.calib.model = e.target.value; invalidate('analysis'); });
+
+  // Export
+  initAnnotUI();
+  ['#btnExportPng', '#btnExportPng2'].forEach(s => $(s).addEventListener('click', exportImage));
+  ['#btnExportCsv', '#btnExportCsv2', '#btnExportCsv3'].forEach(s => $(s).addEventListener('click', exportCSV));
+  $('#btnProfileCsv').addEventListener('click', exportProfileCSV);
+
+  // Bottom panel
+  $('#laneSelect').addEventListener('change', e => selectLane(state.lanes[+e.target.value] || null));
+  $('#lanePrev').addEventListener('click', () => stepLane(-1));
+  $('#laneNext').addEventListener('click', () => stepLane(1));
+  $$('#profileModeSeg button').forEach(b => b.addEventListener('click', () => {
+    state.profileMode = b.dataset.v;
+    $$('#profileModeSeg button').forEach(x => x.classList.toggle('on', x === b));
+    invalidate('profile');
+  }));
+  $('#resultsBody').addEventListener('click', e => {
+    const tr = e.target.closest('tr[data-l]'); if (!tr) return;
+    const L = state.lanes[+tr.dataset.l], b = L && L.bands[+tr.dataset.b]; if (!b) return;
+    selectLane(L); state.selBand = { lane: L, rf: b.rf };
+    invalidate('gel', 'profile', 'tableSel');
+  });
+
+  // Toolbar
+  $('#zoomIn').addEventListener('click', () => zoomAt(gel.w / 2, gel.h / 2, 1.25));
+  $('#zoomOut').addEventListener('click', () => zoomAt(gel.w / 2, gel.h / 2, 0.8));
+  $('#zoomFit').addEventListener('click', fitView);
+  $('#zoom100').addEventListener('click', () => zoomTo(1));
+
+  // Bottom panel resizer
+  const rz = $('#resizer');
+  rz.addEventListener('pointerdown', e => {
+    rz.setPointerCapture(e.pointerId); rz.classList.add('drag');
+    const startY = e.clientY, startH = $('#bottom').getBoundingClientRect().height;
+    const move = ev => {
+      const hMax = window.innerHeight - 38 - 52 - 26 - 160;
+      document.documentElement.style.setProperty('--bottom-h', clamp(startH - (ev.clientY - startY), 150, hMax) + 'px');
+    };
+    const up = () => { rz.classList.remove('drag'); rz.removeEventListener('pointermove', move); rz.removeEventListener('pointerup', up); };
+    rz.addEventListener('pointermove', move); rz.addEventListener('pointerup', up);
+  });
+}
+
+/** Reflect state.display in the Image-step controls. */
+function syncDisplayControls() {
+  const d = state.display;
+  $('#invert').checked = d.invert; $('#brightness').value = d.brightness; $('#contrast').value = d.contrast; $('#gamma').value = d.gamma;
+  $('#brightnessOut').textContent = d.brightness; $('#contrastOut').textContent = d.contrast; $('#gammaOut').textContent = d.gamma.toFixed(2);
+}
+
+/* ---- Step 5: Annotate & Export panel ---- */
+const MAX_EXPORT_SIDE = 16384, MAX_EXPORT_PIXELS = 180e6;
+const DASH_ICONS = {
+  solid: '<svg width="34" height="8"><line x1="2" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2"/></svg>',
+  dashed: '<svg width="34" height="8"><line x1="2" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2" stroke-dasharray="7 4"/></svg>',
+  dotted: '<svg width="34" height="8"><line x1="3" y1="4" x2="32" y2="4" stroke="currentColor" stroke-width="2.4" stroke-dasharray="0.1 5" stroke-linecap="round"/></svg>',
+};
+
+function setTool(t) {
+  state.annot.tool = t; state.annot.draft = null;
+  $$('#toolSeg button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
+  gel.canvas.style.cursor = t === 'line' ? 'crosshair' : t === 'text' ? 'text' : 'default';
+}
+function annotSelect(sel) {
+  state.annot.sel = sel;
+  renderInspector(); invalidate('gel');
+}
+
+/** Push global style / layer / export state into the step-5 controls. */
+function syncAnnotUI() {
+  const A = state.annot, S = A.style;
+  if (S) {
+    $('#stFont').value = S.font; $('#stBold').checked = S.bold; $('#stHalo').checked = S.halo;
+    $('#stLabelSize').value = S.labelSize; $('#stLabelColor').value = S.labelColor;
+    $('#stLaneSize').value = S.laneSize; $('#stLaneColor').value = S.laneColor; $('#stLaneAuto').checked = S.laneAuto;
+    $('#stBandWidth').value = S.bandWidth; $('#stBandColor').value = S.bandColor; $('#stBandAuto').checked = S.bandAuto;
+    $('#stLaneColor').disabled = S.laneAuto; $('#stBandColor').disabled = S.bandAuto;
+  }
+  [['exLanes', 'lanes'], ['exNums', 'nums'], ['exBands', 'bands'], ['exLabels', 'labels'], ['exCaption', 'caption']].forEach(([id, k]) => { $('#' + id).checked = A.layers[k]; });
+  if (document.activeElement !== $('#captionText')) $('#captionText').value = A.caption;
+  $('#captionText').placeholder = captionText() && !A.caption ? captionText() : 'Automatic calibration summary';
+  $('#exFormat').value = A.exp.format; $('#exDpi').value = A.exp.dpi; $('#exSmooth').checked = A.exp.smooth;
+  refreshExportUI(); updateUndoButtons();
+}
+
+/** Export resolution choices with their pixel size; oversize choices are disabled. */
+function refreshExportUI() {
+  const A = state.annot, X = A.exp, sel = $('#exScale');
+  if (!state.img) { sel.innerHTML = '<option>Load an image first</option>'; $('#exInfo').textContent = ''; return; }
+  const W = state.img.width, H = state.img.height + captionHeight();
+  const fits = s => Math.round(W * s) <= MAX_EXPORT_SIDE && Math.round(H * s) <= MAX_EXPORT_SIDE && W * H * s * s <= MAX_EXPORT_PIXELS;
+  if (!fits(X.scale)) X.scale = 1;
+  const html = [1, 2, 3, 4].map(s => `<option value="${s}"${fits(s) ? '' : ' disabled'}${X.scale === s ? ' selected' : ''}>${s === 1 ? 'Native' : s + '×'} — ${Math.round(W * s)} × ${Math.round(H * s)} px${fits(s) ? '' : ' (too large)'}</option>`).join('');
+  if (refreshExportUI.html !== html) { sel.innerHTML = html; refreshExportUI.html = html; }
+  const w = Math.round(W * X.scale), h = Math.round(H * X.scale), cm = v => (v / X.dpi * 2.54).toFixed(1), inch = v => (v / X.dpi).toFixed(2);
+  const B = state.base, src = B ? `Source ${B.origW} × ${B.origH} px${B.bits > 8 ? ` (${B.bits}-bit)` : ''}${B.scaled ? ', analysed downscaled' : ''}.` : '';
+  const info = `${w} × ${h} px · ${(w * h / 1e6).toFixed(1)} MP<br>Print size at ${X.dpi} dpi: ${cm(w)} × ${cm(h)} cm (${inch(w)} × ${inch(h)} in)<br>${src}`;
+  if (refreshExportUI.info !== info) { $('#exInfo').innerHTML = info; refreshExportUI.info = info; }
+}
+
+/** Context-sensitive property editor for the selected label, line or text. */
+function renderInspector() {
+  const A = state.annot, sel = A.sel, box = $('#annotInspector');
+  if (!box) return;
+  const kindName = !sel ? '' : sel.kind === 'item' ? (sel.item.type === 'line' ? 'Line' : 'Text') : sel.kind === 'band' ? 'Size label' : sel.kind === 'lane' ? 'Lane label' : 'Caption';
+  $('#selKind').textContent = kindName;
+  if (!sel) {
+    box.innerHTML = '<div class="hint" style="margin-top:0">Click a label, line or text on the gel to edit it. Drag to move. Use the tools above to add lines or text.</div>';
+    return;
+  }
+  if (sel.kind === 'caption') {
+    box.innerHTML = '<div class="hint" style="margin-top:0">Edit the caption text in <b>Layers</b> below.</div>';
+    return;
+  }
+  if (sel.kind === 'item' && sel.item.type === 'line') {
+    const it = sel.item;
+    box.innerHTML = `
+      <div class="lbl">Line style</div>
+      <div class="seg dash-seg">${['solid', 'dashed', 'dotted'].map(d => `<button data-act="dash" data-v="${d}" class="${it.dash === d ? 'on' : ''}" title="${d[0].toUpperCase() + d.slice(1)}">${DASH_ICONS[d]}</button>`).join('')}</div>
+      <div class="prop"><span>Width / colour</span><input type="number" data-prop="width" min="0.5" max="500" step="0.5" value="${it.width}"><input type="color" data-prop="color" value="${it.color}"></div>
+      <div class="btn-row"><button class="btn sm danger" data-act="delete">Delete line</button></div>`;
+    return;
+  }
+  if (sel.kind === 'item') {
+    const it = sel.item;
+    box.innerHTML = `
+      <div class="field"><label>Text</label><input type="text" data-prop="text" id="insText" value="${escapeHtml(it.text)}"></div>
+      <div class="prop"><span>Size / colour</span><input type="number" data-prop="size" min="1" max="2000" step="1" value="${it.size}"><input type="color" data-prop="color" value="${it.color}"></div>
+      <label class="check" style="margin-top:0"><input type="checkbox" data-prop="bold"${it.bold ? ' checked' : ''}> Bold</label>
+      <div class="btn-row"><button class="btn sm danger" data-act="delete">Delete text</button></div>`;
+    return;
+  }
+  const e = elementForSel(sel), lab = (sel.kind === 'lane' ? sel.lane.numLab : (resolveBand(sel) || {}).lab) || {};
+  const S = A.style, li = laneIndex(sel.lane) + 1;
+  const autoText = sel.kind === 'lane' ? `${li}${sel.lane.isLadder ? ' M' : ''}` : (() => { const b = resolveBand(sel); return b ? bandLabel(sel.lane, b, sel.lane.bands.indexOf(b), 'size') : ''; })();
+  const color = lab.color || (e ? e.color : S.labelColor);
+  box.innerHTML = `
+    <div class="field"><label>Text <span class="faint">${sel.kind === 'lane' ? `lane ${li}` : `lane ${li} band`}</span></label><input type="text" data-prop="text" id="insText" placeholder="${escapeHtml(autoText)}" value="${escapeHtml(lab.text || '')}"></div>
+    <div class="prop"><span>Size / colour</span><input type="number" data-prop="size" min="1" max="2000" step="1" placeholder="${sel.kind === 'lane' ? S.laneSize : S.labelSize}" value="${lab.size || ''}"><input type="color" data-prop="color" value="${color}"></div>
+    <label class="check" style="margin-top:0"><input type="checkbox" data-prop="hidden"${lab.hidden ? ' checked' : ''}> Hide this label</label>
+    <div class="btn-row"><button class="btn sm" data-act="resetPos">Reset position</button><button class="btn sm" data-act="resetStyle">Reset text &amp; style</button></div>
+    <div class="hint">Leave text empty to use the automatic ${sel.kind === 'lane' ? 'lane number' : 'size'}.</div>`;
+}
+
+function applyInspector(el) {
+  const A = state.annot, sel = A.sel, prop = el.dataset.prop;
+  if (!sel || !prop) return;
+  beginEdit();
+  const v = el.type === 'checkbox' ? el.checked : el.value;
+  if (sel.kind === 'item') {
+    const it = sel.item;
+    if (prop === 'size' || prop === 'width') { const n = +v; if (!(n > 0)) return; it[prop] = clamp(n, 0.5, 2000); }
+    else it[prop] = v;
+    if (it.type === 'line') Object.assign(A.lineStyle, { dash: it.dash, color: it.color, width: it.width });   // remember for the next line
+    else Object.assign(A.textStyle, { size: it.size, color: it.color, bold: it.bold });
+  } else {
+    const lab = ensureLab(sel);
+    if (prop === 'size') lab.size = v === '' || !(+v > 0) ? undefined : clamp(+v, 1, 2000);
+    else lab[prop] = v;
+  }
+  invalidate('gel');
+}
+
+function deleteAnnotSel() {
+  const A = state.annot, sel = A.sel; if (!sel || sel.kind === 'caption') return;
+  beginEdit();
+  if (sel.kind === 'item') { A.items = A.items.filter(i => i !== sel.item); A.sel = null; }
+  else ensureLab(sel).hidden = true;
+  endEdit(); renderInspector(); invalidate('gel');
+}
+
+function initAnnotUI() {
+  const A = state.annot, panel = $('#panel5');
+  $$('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
+  $('#btnUndo').addEventListener('click', undo);
+  $('#btnRedo').addEventListener('click', redo);
+
+  // Undo bookkeeping for every control in the panel: one undo step per focused edit.
+  panel.addEventListener('focusout', e => { if (e.target.matches('input,select,textarea')) endEdit(); });
+  panel.addEventListener('change', e => { if (e.target.matches('input[type=checkbox],input[type=color],select')) endEdit(); });
+
+  // Inspector (delegated, rebuilt per selection)
+  const ins = $('#annotInspector');
+  ins.addEventListener('input', e => { if (e.target.dataset.prop) applyInspector(e.target); });
+  ins.addEventListener('change', e => { if (e.target.dataset.prop) { applyInspector(e.target); endEdit(); } });
+  ins.addEventListener('click', e => {
+    const b = e.target.closest('[data-act]'); if (!b || !A.sel) return;
+    const act = b.dataset.act;
+    if (act === 'delete') return deleteAnnotSel();
+    beginEdit();
+    if (act === 'dash') { A.sel.item.dash = b.dataset.v; A.lineStyle.dash = b.dataset.v; }
+    if (act === 'resetPos') { const lab = ensureLab(A.sel); delete lab.dx; delete lab.dy; }
+    if (act === 'resetStyle') { const lab = ensureLab(A.sel); ['text', 'size', 'color', 'hidden'].forEach(k => delete lab[k]); }
+    endEdit(); renderInspector(); invalidate('gel');
+  });
+
+  // Global label style
+  const styleBind = (id, key, num) => {
+    const el = $('#' + id), ev = el.type === 'checkbox' || el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(ev, () => {
+      if (!A.style) return;
+      beginEdit();
+      const v = el.type === 'checkbox' ? el.checked : num ? +el.value : el.value;
+      if (num && !(v > 0)) return;
+      A.style[key] = v;
+      $('#stLaneColor').disabled = A.style.laneAuto; $('#stBandColor').disabled = A.style.bandAuto;
+      invalidate('gel'); refreshExportUI();
+    });
+  };
+  [['stFont', 'font'], ['stBold', 'bold'], ['stHalo', 'halo'], ['stLabelColor', 'labelColor'], ['stLaneColor', 'laneColor'], ['stLaneAuto', 'laneAuto'],
+   ['stBandColor', 'bandColor'], ['stBandAuto', 'bandAuto']].forEach(([id, k]) => styleBind(id, k, false));
+  [['stLabelSize', 'labelSize'], ['stLaneSize', 'laneSize'], ['stBandWidth', 'bandWidth']].forEach(([id, k]) => styleBind(id, k, true));
+  const forAllLabs = fn => state.lanes.forEach(L => { if (L.numLab) fn(L.numLab); L.bands.forEach(b => { if (b.lab) fn(b.lab); }); });
+  $('#btnResetLabelPos').addEventListener('click', () => { beginEdit(); forAllLabs(l => { delete l.dx; delete l.dy; }); endEdit(); invalidate('gel'); toast('All labels moved back to their default positions.'); });
+  $('#btnShowHidden').addEventListener('click', () => { beginEdit(); forAllLabs(l => { delete l.hidden; }); endEdit(); renderInspector(); invalidate('gel'); });
+  $('#btnResetStyle').addEventListener('click', () => { if (!state.img) return; beginEdit(); A.style = defaultAnnotStyle(); endEdit(); syncAnnotUI(); invalidate('gel'); });
+
+  // Layers & caption
+  [['exLanes', 'lanes'], ['exNums', 'nums'], ['exBands', 'bands'], ['exLabels', 'labels'], ['exCaption', 'caption']].forEach(([id, k]) =>
+    $('#' + id).addEventListener('change', e => { beginEdit(); A.layers[k] = e.target.checked; invalidate('gel'); refreshExportUI(); }));
+  $('#captionText').addEventListener('input', e => { beginEdit(); A.caption = e.target.value; invalidate('gel'); refreshExportUI(); });
+
+  // Export settings
+  $('#exScale').addEventListener('change', e => { A.exp.scale = +e.target.value || 1; refreshExportUI(); });
+  $('#exDpi').addEventListener('change', e => { A.exp.dpi = +e.target.value; refreshExportUI(); });
+  $('#exFormat').addEventListener('change', e => { A.exp.format = e.target.value; });
+  $('#exSmooth').addEventListener('change', e => { A.exp.smooth = e.target.checked; });
+}
+
+function setLadder(L) {
+  state.lanes.forEach(x => { x.isLadder = x === L; });
+  state.calib.assignMode = 'auto';
+  invalidate('analysis', 'laneUI');
+}
+function stepLane(d) {
+  if (!state.lanes.length) return;
+  const i = laneIndex(state.sel);
+  selectLane(state.lanes[clamp((i < 0 ? 0 : i) + d, 0, state.lanes.length - 1)]);
+}
+
+/* ==========================================================================
+   11. POINTER & KEYBOARD INTERACTION
+   ========================================================================== */
+let drag = null, spaceDown = false;
+const evPt = (e, el) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+
+/** Hit-test lane geometry for step 2 (handles > guide lines > edges > body). */
+function hitLanes(p) {
+  const tol = 7 / state.view.scale;
+  const order = state.sel ? [state.sel, ...state.lanes.filter(l => l !== state.sel)] : state.lanes;
+  for (const L of order) {
+    if (Math.hypot(p.x - L.xTop, p.y - laneTop(L)) <= tol * 1.3) return { type: 'top', lane: L };
+    if (Math.hypot(p.x - L.xBot, p.y - laneBot(L)) <= tol * 1.3) return { type: 'bot', lane: L };
+  }
+  if (Math.abs(p.y - state.wellY) <= tol) return { type: 'well' };
+  if (Math.abs(p.y - state.frontY) <= tol) return { type: 'front' };
+  for (const L of order) {
+    const yT = laneTop(L), yB = laneBot(L);
+    if (p.y < yT - tol || p.y > yB + tol) continue;
+    const cx = laneCenterAt(L, p.y), hw = L.width / 2;
+    if (Math.abs(p.x - (cx - hw)) <= tol) return { type: 'edgeL', lane: L };
+    if (Math.abs(p.x - (cx + hw)) <= tol) return { type: 'edgeR', lane: L };
+    if (Math.abs(p.x - cx) < hw) return { type: 'body', lane: L };
+  }
+  return null;
+}
+function hitLaneBody(p) {
+  for (const L of state.lanes) {
+    const yT = laneTop(L), yB = laneBot(L);
+    if (p.y < yT || p.y > yB) continue;
+    if (Math.abs(p.x - laneCenterAt(L, p.y)) <= L.width / 2) return L;
+  }
+  return null;
+}
+function hitBand(p) {
+  const tol = 6 / state.view.scale; let best = null, bd = Infinity;
+  const order = state.sel ? [state.sel, ...state.lanes.filter(l => l !== state.sel)] : state.lanes;
+  for (const L of order) {
+    const yT = laneTop(L), yB = laneBot(L);
+    if (p.y < yT - tol || p.y > yB + tol) continue;
+    if (Math.abs(p.x - laneCenterAt(L, p.y)) > L.width / 2 + tol) continue;
+    for (const b of L.bands) {
+      const d = Math.abs(yT + b.rf * (yB - yT) - p.y);
+      if (d <= tol && d < bd) { bd = d; best = { lane: L, band: b }; }
+    }
+    if (best) return best;
+  }
+  return best;
+}
+const CURSORS = { top: 'move', bot: 'move', well: 'ns-resize', front: 'ns-resize', edgeL: 'ew-resize', edgeR: 'ew-resize', body: 'grab' };
+function updateHoverCursor(p) {
+  const c = gel.canvas;
+  if (!state.img) { c.style.cursor = 'default'; return; }
+  if (spaceDown) { c.style.cursor = 'grab'; return; }
+  if (state.step === 5) { annotHoverCursor(p); return; }
+  if (state.step === 2) { const h = hitLanes(p); c.style.cursor = h ? CURSORS[h.type] : 'default'; return; }
+  if (state.step >= 3 && hitBand(p)) { c.style.cursor = 'ns-resize'; return; }
+  const L = hitLaneBody(p);
+  if (state.step === 3 && L && L === state.sel) { c.style.cursor = 'copy'; return; }
+  c.style.cursor = L ? 'pointer' : 'default';
+}
+function updateStatus(p) {
+  if (!state.img) return;
+  const { width: W, height: H, gray } = state.img, x = Math.floor(p.x), y = Math.floor(p.y);
+  const inside = x >= 0 && y >= 0 && x < W && y < H;
+  $('#stX').textContent = inside ? x : '—';
+  $('#stY').textContent = inside ? y : '—';
+  $('#stI').textContent = inside ? (state.img.bits === 16 ? Math.round(gray[y * W + x] * 257) : gray[y * W + x].toFixed(state.img.bits > 8 ? 1 : 0)) : '—';
+}
+
+/* ---- Step 5 pointer handling: select / move labels, draw lines, place text ---- */
+/** Constrain (x, y) to 45° steps around (x0, y0). */
+function snap45(x0, y0, x, y) {
+  const a = Math.round(Math.atan2(y - y0, x - x0) / (Math.PI / 4)) * (Math.PI / 4), r = Math.hypot(x - x0, y - y0);
+  return [x0 + r * Math.cos(a), y0 + r * Math.sin(a)];
+}
+function annotPointerDown(e, p, base) {
+  const A = state.annot, c = gel.canvas;
+  if (e.button !== 0) return false;
+  if (A.tool === 'line') {
+    beginEdit();
+    A.draft = { type: 'line', x1: p.x, y1: p.y, x2: p.x, y2: p.y, ...A.lineStyle };
+    drag = { ...base, type: 'annDraw' };
+    return true;
+  }
+  if (A.tool === 'text') {
+    beginEdit();
+    const it = { id: A.nextId++, type: 'text', x: p.x, y: p.y, text: 'Label', ...A.textStyle };
+    A.items.push(it); endEdit();
+    setTool('select'); annotSelect({ kind: 'item', item: it });
+    drag = { ...base, type: 'annText' };                              // focus the text box on pointerup
+    return true;
+  }
+  const h = annotHit(p);
+  if (!h) { annotSelect(null); drag = { ...base, type: 'pan' }; return true; }
+  if (h.kind === 'caption') { annotSelect(h); $('#captionText').focus(); return true; }
+  beginEdit();
+  if (h.kind === 'end') { drag = { ...base, type: 'annEnd', item: h.item, end: h.end, orig: { ...h.item } }; c.style.cursor = 'grabbing'; return true; }
+  annotSelect(h);
+  let orig;
+  if (h.kind === 'item') orig = { ...h.item };
+  else { const lab = ensureLab(h); orig = { dx: lab.dx || 0, dy: lab.dy || 0 }; }
+  drag = { ...base, type: 'annMove', target: h, orig };
+  c.style.cursor = 'grabbing';
+  return true;
+}
+function annotPointerMove(e, p, dx, dy) {
+  const A = state.annot, d = drag;
+  if (d.type === 'annDraw') {
+    const D = A.draft; [D.x2, D.y2] = e.shiftKey ? snap45(D.x1, D.y1, p.x, p.y) : [p.x, p.y];
+  } else if (d.type === 'annEnd') {
+    const it = d.item, o = d.orig, fx = d.end === 1 ? o.x2 : o.x1, fy = d.end === 1 ? o.y2 : o.y1;
+    const [x, y] = e.shiftKey ? snap45(fx, fy, p.x, p.y) : [p.x, p.y];
+    if (d.end === 1) { it.x1 = x; it.y1 = y; } else { it.x2 = x; it.y2 = y; }
+  } else if (d.type === 'annMove') {
+    if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }   // move along one axis
+    const t = d.target, o = d.orig;
+    if (t.kind === 'item' && t.item.type === 'line') Object.assign(t.item, { x1: o.x1 + dx, y1: o.y1 + dy, x2: o.x2 + dx, y2: o.y2 + dy });
+    else if (t.kind === 'item') Object.assign(t.item, { x: o.x + dx, y: o.y + dy });
+    else { const lab = ensureLab(t); lab.dx = o.dx + dx; lab.dy = o.dy + dy; }
+  } else return false;
+  invalidate('gel');
+  return true;
+}
+function annotPointerUp(d) {
+  const A = state.annot;
+  if (d.type === 'annDraw') {
+    const D = A.draft; A.draft = null;
+    if (Math.hypot(D.x2 - D.x1, D.y2 - D.y1) * state.view.scale >= 4) {
+      D.id = A.nextId++; A.items.push(D); endEdit();
+      setTool('select'); annotSelect({ kind: 'item', item: D });
+    } else { pendingSnap = null; invalidate('gel'); }
+    return true;
+  }
+  if (d.type === 'annText') {
+    // Focusing during pointerdown would be undone by the browser's mousedown focus handling.
+    const inp = $('#insText'); if (inp) { inp.focus(); inp.select(); }
+    return true;
+  }
+  if (d.type === 'annMove' || d.type === 'annEnd') {
+    if (d.moved) endEdit(); else pendingSnap = null;
+    renderInspector();
+    return true;
+  }
+  return false;
+}
+function annotHoverCursor(p) {
+  const A = state.annot, c = gel.canvas;
+  if (A.tool !== 'select') { c.style.cursor = A.tool === 'line' ? 'crosshair' : 'text'; return; }
+  const h = annotHit(p);
+  c.style.cursor = !h ? 'default' : h.kind === 'end' ? 'pointer' : h.kind === 'caption' ? 'text' : 'move';
+}
+/** Keyboard shortcuts while annotating. Returns true when handled. */
+function annotKey(e) {
+  const A = state.annot, mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
+  if (mod && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); return true; }
+  if (mod && k === 'y') { redo(); e.preventDefault(); return true; }
+  if (mod) return false;
+  if (k === 'v') { setTool('select'); return true; }
+  if (k === 'l') { setTool('line'); return true; }
+  if (k === 't') { setTool('text'); return true; }
+  if (e.key === 'Escape') { setTool('select'); annotSelect(null); return true; }
+  if (e.key === 'Delete' || e.key === 'Backspace') { deleteAnnotSel(); e.preventDefault(); return true; }
+  if (A.sel && A.sel.kind !== 'caption' && e.key.startsWith('Arrow')) {
+    const step = Math.max(1, 1 / state.view.scale) * (e.shiftKey ? 10 : 1);
+    const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    beginEdit();
+    const s = A.sel;
+    if (s.kind === 'item' && s.item.type === 'line') { s.item.x1 += dx; s.item.x2 += dx; s.item.y1 += dy; s.item.y2 += dy; }
+    else if (s.kind === 'item') { s.item.x += dx; s.item.y += dy; }
+    else { const lab = ensureLab(s); lab.dx = (lab.dx || 0) + dx; lab.dy = (lab.dy || 0) + dy; }
+    clearTimeout(annotKey.t); annotKey.t = setTimeout(endEdit, 600);   // group a burst of nudges into one undo step
+    invalidate('gel'); e.preventDefault(); return true;
+  }
+  return false;
+}
+
+function initPointer() {
+  const c = gel.canvas;
+  c.addEventListener('contextmenu', e => e.preventDefault());
+  c.addEventListener('wheel', e => {
+    if (!state.img) return;
+    e.preventDefault();
+    const p = evPt(e, c), k = e.deltaMode === 1 ? 0.05 : 0.0015;
+    zoomAt(p.x, p.y, Math.exp(-e.deltaY * k));
+  }, { passive: false });
+
+  c.addEventListener('pointerdown', e => {
+    if (!state.img) return;
+    // Release focus from sidebar inputs so keyboard shortcuts act on the canvas.
+    if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
+    c.setPointerCapture(e.pointerId);
+    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    const base = { sx: sp.x, sy: sp.y, p0: p, moved: false, ox: state.view.ox, oy: state.view.oy };
+    if (e.button === 1 || spaceDown || (e.button === 0 && e.altKey)) { drag = { ...base, type: 'pan' }; c.style.cursor = 'grabbing'; return; }
+    if (state.step === 5) { annotPointerDown(e, p, base); return; }
+    if (e.button === 2) {
+      if (state.step >= 3) {
+        const hb = hitBand(p);
+        if (hb) { deleteBand(hb.lane, hb.band); toast(`Band removed from lane ${laneIndex(hb.lane) + 1}.`); }
+      }
+      return;
+    }
+    if (e.button !== 0) return;
+    if (state.step === 2) {
+      const h = hitLanes(p);
+      if (h) {
+        if (h.lane) selectLane(h.lane);
+        const L = h.lane;
+        drag = { ...base, type: h.type, lane: L, orig: L ? { xTop: L.xTop, xBot: L.xBot, dyTop: L.dyTop, dyBot: L.dyBot, width: L.width } : { wellY: state.wellY, frontY: state.frontY } };
+        if (h.type === 'body') c.style.cursor = 'grabbing';
+        return;
+      }
+    } else if (state.step >= 3) {
+      const hb = hitBand(p);
+      if (hb) {
+        selectLane(hb.lane); state.selBand = { lane: hb.lane, rf: hb.band.rf };
+        drag = { ...base, type: 'band', lane: hb.lane, band: hb.band, origRf: hb.band.rf };
+        invalidate('gel', 'profile', 'tableSel');
+        return;
+      }
+    }
+    const hl = hitLaneBody(p);
+    drag = hl ? { ...base, type: 'laneClick', lane: hl } : { ...base, type: 'pan' };
+  });
+
+  c.addEventListener('pointermove', e => {
+    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    updateStatus(p);
+    if (!drag) { updateHoverCursor(p); return; }
+    const dxs = sp.x - drag.sx, dys = sp.y - drag.sy;
+    if (Math.hypot(dxs, dys) > 3) drag.moved = true;
+    const dx = dxs / state.view.scale, dy = dys / state.view.scale, L = drag.lane, o = drag.orig;
+    if (state.step === 5 && annotPointerMove(e, p, dx, dy)) return;
+    switch (drag.type) {
+      case 'laneClick': if (!drag.moved) break; drag.type = 'pan'; c.style.cursor = 'grabbing'; /* falls through */
+      case 'pan': state.view.ox = drag.ox + dxs; state.view.oy = drag.oy + dys; invalidate('gel'); break;
+      case 'body': L.xTop = o.xTop + dx; L.xBot = o.xBot + dx; invalidateLane(L); invalidate('analysis'); break;
+      case 'top':
+        L.xTop = o.xTop + dx; L.dyTop = Math.min(o.dyTop + dy, laneBot(L) - state.wellY - 10);
+        invalidateLane(L); invalidate('analysis'); break;
+      case 'bot':
+        L.xBot = o.xBot + dx; L.dyBot = Math.max(o.dyBot + dy, laneTop(L) - state.frontY + 10);
+        invalidateLane(L); invalidate('analysis'); break;
+      case 'edgeL': L.width = Math.max(3, o.width - 2 * dx); invalidateLane(L); invalidate('analysis', 'laneUI'); break;
+      case 'edgeR': L.width = Math.max(3, o.width + 2 * dx); invalidateLane(L); invalidate('analysis', 'laneUI'); break;
+      case 'well':
+        state.wellY = clamp(o.wellY + dy, 0, state.frontY - 10);
+        state.lanes.forEach(invalidateLane); syncControls(); invalidate('analysis'); break;
+      case 'front':
+        state.frontY = clamp(o.frontY + dy, state.wellY + 10, state.img.height);
+        state.lanes.forEach(invalidateLane); syncControls(); invalidate('analysis'); break;
+      case 'band': {
+        const yT = laneTop(L), yB = laneBot(L), rf = clamp(drag.origRf + dy / (yB - yT), 0, 1);
+        drag.band.rf = rf; drag.band.pos = rf * (L.profile.n - 1); state.selBand.rf = rf;
+        invalidate('gel', 'profile'); break;
+      }
+    }
+  });
+
+  const end = e => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    if (state.step === 5) { annotPointerUp(d); annotHoverCursor(p); return; }
+    if (d.type === 'laneClick' && !d.moved) {
+      if (state.step === 3 && d.lane === state.sel) {
+        addBandAt(d.lane, (d.p0.y - laneTop(d.lane)) / (laneBot(d.lane) - laneTop(d.lane)));
+      } else selectLane(d.lane);
+    } else if (d.type === 'band') {
+      if (d.moved) moveBand(d.lane, d.origRf, d.band.rf, d.band.manual);
+    } else if (['body', 'top', 'bot', 'edgeL', 'edgeR'].includes(d.type)) {
+      sortLanes(); invalidate('analysis', 'laneUI');
+    }
+    updateHoverCursor(p);
+  };
+  c.addEventListener('pointerup', end);
+  c.addEventListener('pointercancel', end);
+  c.addEventListener('dblclick', e => {
+    if (state.step !== 5) return;
+    const sp = evPt(e, c), h = annotHit(toImage(sp.x, sp.y));
+    if (h && h.kind !== 'end' && h.kind !== 'caption') { annotSelect(h); const inp = $('#insText'); if (inp) { inp.focus(); inp.select(); } }
+  });
+  c.addEventListener('pointerleave', () => { if (!drag) { ['#stX', '#stY', '#stI'].forEach(s => $(s).textContent = '—'); } });
+
+  // Electropherogram: hover, click to add, right-click to delete.
+  const pc = prof.canvas;
+  pc.addEventListener('contextmenu', e => e.preventDefault());
+  pc.addEventListener('pointermove', e => {
+    const G = profileGeom(); if (!G) return;
+    const sp = evPt(e, pc);
+    if (sp.x < G.m.l - 4 || sp.x > G.m.l + G.pw + 4) { if (state.hover) { state.hover = null; invalidate('gel', 'profile'); } return; }
+    state.hover = { lane: G.L, idx: G.idxAt(sp.x) };
+    invalidate('gel', 'profile');
+  });
+  pc.addEventListener('pointerleave', () => { state.hover = null; invalidate('gel', 'profile'); });
+  pc.addEventListener('pointerdown', e => {
+    const G = profileGeom(); if (!G) return;
+    const sp = evPt(e, pc);
+    if (sp.x < G.m.l || sp.x > G.m.l + G.pw) return;
+    const idx = G.idxAt(sp.x);
+    // nearest band within 8 screen px
+    let nb = null, nd = 8;
+    G.L.bands.forEach(b => { const d = Math.abs(G.X(b.pos) - sp.x); if (d < nd) { nd = d; nb = b; } });
+    if (e.button === 2) {
+      if (nb) { deleteBand(G.L, nb); toast('Band removed.'); }
+      return;
+    }
+    if (e.button !== 0) return;
+    if (nb) { state.selBand = { lane: G.L, rf: nb.rf }; invalidate('gel', 'profile', 'tableSel'); return; }
+    if (state.step < 3) { toast('Switch to step 3 (Bands) to add bands manually.'); return; }
+    addBandAt(G.L, idx / (G.P.n - 1));
+  });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', e => {
+    const tag = (e.target.tagName || '').toLowerCase();
+    if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
+    if (e.code === 'Space') { spaceDown = true; e.preventDefault(); return; }
+    if (!state.img) return;
+    if (state.step === 5 && annotKey(e)) return;
+    switch (e.key) {
+      case 'f': case 'F': fitView(); break;
+      case '1': zoomTo(1); break;
+      case '+': case '=': zoomAt(gel.w / 2, gel.h / 2, 1.25); break;
+      case '-': case '_': zoomAt(gel.w / 2, gel.h / 2, 0.8); break;
+      case 'ArrowLeft': stepLane(-1); e.preventDefault(); break;
+      case 'ArrowRight': stepLane(1); e.preventDefault(); break;
+      case 'Delete': case 'Backspace': {
+        if (state.step === 2 && state.sel) deleteLane(state.sel);
+        else if (state.step >= 3) { const b = findSelBand(); if (b) deleteBand(state.selBand.lane, b); }
+        e.preventDefault(); break;
+      }
+    }
+  });
+  window.addEventListener('keyup', e => { if (e.code === 'Space') spaceDown = false; });
+}
+
+/* ==========================================================================
+   12. EXPORT
+   ========================================================================== */
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const csvCell = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+
+/* ---- Resolution metadata & TIFF writer ---- */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; }
+  return t;
+})();
+function crc32(bytes) { let c = 0xffffffff; for (let i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
+
+/** Insert a pHYs chunk (pixels per metre) so the PNG carries its intended print DPI. */
+async function pngWithDpi(blob, dpi) {
+  const src = new Uint8Array(await blob.arrayBuffer()), dv = new DataView(src.buffer), ppm = Math.round(dpi / 0.0254);
+  const phys = new Uint8Array(21), pdv = new DataView(phys.buffer);
+  pdv.setUint32(0, 9); phys.set([0x70, 0x48, 0x59, 0x73], 4); pdv.setUint32(8, ppm); pdv.setUint32(12, ppm); phys[16] = 1;
+  pdv.setUint32(17, crc32(phys.subarray(4, 17)));
+  const parts = [src.subarray(0, 8)];
+  for (let p = 8; p + 8 <= src.length;) {
+    const len = dv.getUint32(p), type = String.fromCharCode(src[p + 4], src[p + 5], src[p + 6], src[p + 7]), end = p + 12 + len;
+    if (type !== 'pHYs') parts.push(src.subarray(p, end));
+    if (type === 'IHDR') parts.push(phys);
+    p = end;
+    if (type === 'IEND') break;
+  }
+  return new Blob(parts, { type: 'image/png' });
+}
+/** Write the DPI into the JFIF APP0 header of a JPEG. */
+async function jpegWithDpi(blob, dpi) {
+  const b = new Uint8Array(await blob.arrayBuffer());
+  if (b[2] === 0xff && b[3] === 0xe0 && b[6] === 0x4a && b[7] === 0x46 && b[8] === 0x49 && b[9] === 0x46) {
+    b[13] = 1; b[14] = dpi >> 8; b[15] = dpi & 255; b[16] = dpi >> 8; b[17] = dpi & 255;
+  }
+  return new Blob([b], { type: 'image/jpeg' });
+}
+/** Baseline uncompressed 8-bit RGB TIFF with X/Y resolution (lossless, accepted by journals). */
+function encodeTiff(rgba, W, H, dpi) {
+  const nTags = 12, ifdSize = 2 + nTags * 12 + 4, bpsOff = 8 + ifdSize, xresOff = bpsOff + 6, yresOff = xresOff + 8, dataOff = yresOff + 8;
+  const dataLen = W * H * 3, buf = new ArrayBuffer(dataOff + dataLen), dv = new DataView(buf), u8 = new Uint8Array(buf);
+  u8[0] = u8[1] = 0x49; dv.setUint16(2, 42, true); dv.setUint32(4, 8, true);
+  let p = 8; dv.setUint16(p, nTags, true); p += 2;
+  const tag = (t, type, count, val) => {
+    dv.setUint16(p, t, true); dv.setUint16(p + 2, type, true); dv.setUint32(p + 4, count, true);
+    if (type === 3 && count === 1) dv.setUint16(p + 8, val, true); else dv.setUint32(p + 8, val, true);
+    p += 12;
+  };
+  tag(256, 4, 1, W); tag(257, 4, 1, H); tag(258, 3, 3, bpsOff); tag(259, 3, 1, 1); tag(262, 3, 1, 2); tag(273, 4, 1, dataOff);
+  tag(277, 3, 1, 3); tag(278, 4, 1, H); tag(279, 4, 1, dataLen); tag(282, 5, 1, xresOff); tag(283, 5, 1, yresOff); tag(296, 3, 1, 2);
+  dv.setUint32(p, 0, true);
+  for (let i = 0; i < 3; i++) dv.setUint16(bpsOff + i * 2, 8, true);
+  dv.setUint32(xresOff, dpi, true); dv.setUint32(xresOff + 4, 1, true);
+  dv.setUint32(yresOff, dpi, true); dv.setUint32(yresOff + 4, 1, true);
+  for (let i = 0, j = dataOff; i < rgba.length; i += 4) { u8[j++] = rgba[i]; u8[j++] = rgba[i + 1]; u8[j++] = rgba[i + 2]; }
+  return new Blob([buf], { type: 'image/tiff' });
+}
+
+/** Export the annotated figure exactly as composed in step 5, at native resolution or upscaled. */
+let exporting = false;
+async function exportImage() {
+  if (!state.img) return toast('Load an image first.');
+  if (exporting) return;
+  flush();
+  const X = state.annot.exp, s = X.scale, W = state.img.width, H = state.img.height, capH = captionHeight();
+  const cw = Math.round(W * s), ch = Math.round((H + capH) * s);
+  if (cw > MAX_EXPORT_SIDE || ch > MAX_EXPORT_SIDE || cw * ch > MAX_EXPORT_PIXELS) return toast('That resolution is too large for the browser. Choose a lower one.', 'error');
+  exporting = true;
+  const ext = X.format === 'jpeg' ? 'jpg' : X.format === 'tiff' ? 'tif' : 'png';
+  toast(`Rendering ${cw} × ${ch} px ${ext.toUpperCase()}…`);
+  await new Promise(r => setTimeout(r, 40));                       // let the toast paint before the heavy work
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d');
+  try {
+    ctx.imageSmoothingEnabled = s === 1 || X.smooth; ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(state.dispCanvas, 0, 0, W * s, H * s);
+    ctx.imageSmoothingEnabled = true;
+    drawComposition(ctx, s, 0, 0);
+    let blob;
+    if (X.format === 'tiff') blob = encodeTiff(ctx.getImageData(0, 0, cw, ch).data, cw, ch, X.dpi);
+    else {
+      blob = await new Promise(r => c.toBlob(r, X.format === 'jpeg' ? 'image/jpeg' : 'image/png', 1));
+      if (!blob) throw new Error('canvas could not be encoded');
+      blob = X.format === 'jpeg' ? await jpegWithDpi(blob, X.dpi) : await pngWithDpi(blob, X.dpi);
+    }
+    download(blob, `${state.fileName}_annotated.${ext}`);
+    toast(`Exported ${cw} × ${ch} px ${ext.toUpperCase()} at ${X.dpi} dpi (${(blob.size / 1048576).toFixed(1)} MB).`);
+  } catch (err) {
+    console.error(err);
+    toast('Export failed: the image is too large for this browser’s memory. Choose a lower resolution or PNG.', 'error');
+  } finally { c.width = c.height = 0; exporting = false; }
+}
+
+function exportCSV() {
+  if (!state.img) return toast('Load an image first.');
+  flush();
+  const head = ['Lane', 'Lane Label', 'Lane Type', 'Band', 'Migration Distance (px)', 'Rf', 'Estimated Size (bp)', 'Assigned Ladder Size (bp)',
+                'Extrapolated', 'Peak Height', 'Integrated Peak Area', 'Relative Area (% of lane)', 'Manual'];
+  const rows = [head];
+  state.lanes.forEach((L, li) => {
+    const total = L.bands.reduce((s, b) => s + b.area, 0) || 1;
+    L.bands.forEach((b, bi) => rows.push([
+      li + 1, (L.numLab && L.numLab.text) || '', L.isLadder ? 'Ladder' : 'Sample', bi + 1, b.pos.toFixed(2), b.rf.toFixed(5),
+      b.est > 0 ? Math.round(b.est) : '', L.isLadder && b.size > 0 ? b.size : '',
+      b.est > 0 ? (b.extrap ? 'yes' : 'no') : '', b.height.toFixed(2), b.area.toFixed(2), (100 * b.area / total).toFixed(2), b.manual ? 'yes' : 'no',
+    ]));
+  });
+  const csv = rows.map(r => r.map(csvCell).join(',')).join('\r\n');
+  download(new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' }), `${state.fileName}_bands.csv`);
+  toast(`Exported ${rows.length - 1} bands to CSV.`);
+}
+
+function exportProfileCSV() {
+  const L = state.sel; if (!L || !L.profile || !L.profile.corr) return toast('Select a lane first.');
+  const P = L.profile, rows = [['Index (px)', 'Rf', 'Raw', 'Smoothed', 'Baseline', 'Corrected']];
+  for (let i = 0; i < P.n; i++) rows.push([i, (i / (P.n - 1)).toFixed(5), P.raw[i].toFixed(3), P.smooth[i].toFixed(3), P.base[i].toFixed(3), P.corr[i].toFixed(3)]);
+  download(new Blob([rows.map(r => r.join(',')).join('\r\n')], { type: 'text/csv' }), `${state.fileName}_lane${laneIndex(L) + 1}_profile.csv`);
+}
+
+/* ==========================================================================
+   13. BOOT
+   ========================================================================== */
+function boot() {
+  window.addEventListener('beforeunload', e => { if (state.img) { e.preventDefault(); e.returnValue = ''; } });
+  initUI();
+  initPointer();
+  observeCanvas(gel, () => { if (state.img && !gel.fitted) { gel.fitted = true; fitView(); } invalidate('gel'); });
+  observeCanvas(prof, () => invalidate('profile'));
+  observeCanvas(curve, () => drawCurve());
+  goStep(1);
+  invalidate('laneUI', 'calib', 'table');
+}
+boot();
+</script>
+</body>
+</html>
