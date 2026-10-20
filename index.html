@@ -44,6 +44,12 @@ body{
 }
 .hidden{display:none!important}
 button{font:inherit}
+.site-nav{border-bottom:1px solid var(--border);background:var(--bg)}
+.site-nav-inner{max-width:1120px;margin:0 auto;padding:8px 16px;display:flex;align-items:center;gap:4px;overflow-x:auto;scrollbar-width:none}
+.site-nav a{display:inline-flex;align-items:center;gap:7px;padding:6px 13px;border-radius:999px;color:var(--muted);text-decoration:none;font-size:.84rem;font-weight:650;white-space:nowrap;transition:color .15s,background .15s}
+.site-nav a:hover{color:var(--text);background:var(--surface-2)}
+.site-nav a[aria-current="page"]{color:var(--accent);background:var(--accent-soft)}
+.site-nav a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 .app-header{max-width:1120px;margin:0 auto;padding:22px 16px 6px;display:flex;align-items:center;justify-content:space-between;gap:12px}
 .brand{display:flex;align-items:center;gap:13px;min-width:0}
 .logo{flex:none;width:46px;height:46px;border-radius:14px;display:grid;place-items:center;color:#04161a;
@@ -305,7 +311,7 @@ footer{text-align:center;color:var(--faint);font-size:.78rem;padding:0 16px 32px
 @media print{
   :root,[data-theme]{--bg:#fff;--bg-grad:#fff;--surface:#fff;--surface-2:#f3f3f3;--surface-3:#e9e9e9;--border:#bbb;--border-strong:#888;--text:#000;--muted:#333;--faint:#555;--accent:#000;--accent-soft:transparent;--accent-ink:#fff;--ok:#000;--ok-ink:#fff;--shadow:none}
   body{background:#fff}
-  #themeBtn,#paramsCard,#uploadCard,#reagentCard,.history,#resultsCard .actions,#resetChecks,#toast,footer,#staleNote{display:none!important}
+  .site-nav,#themeBtn,#paramsCard,#uploadCard,#reagentCard,.history,#resultsCard .actions,#resetChecks,#toast,footer,#staleNote{display:none!important}
   .card{break-inside:avoid;box-shadow:none}
   .results tbody tr.next{background:transparent}
   .results tbody tr.next .rname::after{display:none}
@@ -313,6 +319,13 @@ footer{text-align:center;color:var(--faint);font-size:.78rem;padding:0 16px 32px
 </style>
 </head>
 <body>
+
+<nav class="site-nav" aria-label="Tools">
+<div class="site-nav-inner">
+  <a href="index.html" aria-current="page"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3h6"/><path d="M10 3v6.2L4.6 18.4A1.8 1.8 0 0 0 6.2 21h11.6a1.8 1.8 0 0 0 1.6-2.6L14 9.2V3"/><path d="M7.5 15h9"/></svg>Master Mix Calculator</a>
+  <a href="gel-analyzer/index.html"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 8h3M14 8h3M7 13h3M14 11h3M14 16h3"/></svg>Gel Analyzer</a>
+</div>
+</nav>
 
 <header class="app-header">
   <div class="brand">
