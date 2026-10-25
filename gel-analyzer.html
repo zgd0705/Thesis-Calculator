@@ -188,6 +188,11 @@ table.mini select{padding:2px 4px;font-size:11.5px;font-family:var(--mono)}
     #070a0e;
 }
 #gelCanvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none}
+/* Figure editor: the only DOM overlay is an accessible inline lane-name input. */
+#laneInlineEditor{position:absolute;z-index:5;width:160px;min-height:32px;padding:4px 7px;border:2px solid var(--accent);border-radius:4px;background:#fff;color:#111;transform-origin:50% 100%;box-shadow:0 2px 12px #0008}
+.cutout-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+#panel5 [hidden],#laneInlineEditor[hidden]{display:none}
+.seg.tools{flex-wrap:wrap}
 .canvas-toolbar{
   position:absolute;top:10px;right:10px;display:flex;align-items:center;gap:4px;
   background:rgba(17,24,33,.88);border:1px solid var(--border);border-radius:9px;padding:4px;backdrop-filter:blur(6px);
@@ -512,12 +517,27 @@ table.results .extrap{color:var(--warn)}
           <button data-tool="select" class="on" title="Select and move (V)">↖ Select <kbd>V</kbd></button>
           <button data-tool="line" title="Draw a line (L)">╱ Line <kbd>L</kbd></button>
           <button data-tool="text" title="Add text (T)">T Text <kbd>T</kbd></button>
+          <button data-tool="callout" title="Add a numbered band reference">← Callout</button>
         </div>
         <div class="btn-row">
           <button class="btn sm" id="btnUndo" disabled title="Undo (Ctrl+Z)">↶ Undo</button>
           <button class="btn sm" id="btnRedo" disabled title="Redo (Ctrl+Shift+Z)">↷ Redo</button>
         </div>
         <div class="hint">Drag any label, line or text to move it. Hold <kbd>Shift</kbd> to move along one axis or keep lines at 45° steps. Arrow keys nudge the selection.</div>
+      </div>
+
+      <div class="group">
+        <h3>Figure panels</h3>
+        <label class="check"><input type="checkbox" id="angleHeaders"> Angle long headers (−45°)</label>
+        <label class="check"><input type="checkbox" id="figureTicks" checked> External bp ticks</label>
+        <div class="cutout-actions">
+          <button class="btn sm" id="btnAddCutout">Add cutout</button>
+          <button class="btn sm" id="btnShowOriginal" disabled>Show original</button>
+          <button class="btn sm primary" id="btnCutoutsDone" hidden>Done</button>
+          <button class="btn sm" id="btnCutoutsCancel" hidden>Cancel</button>
+          <button class="btn sm danger" id="btnDeleteCutout" hidden>Delete cutout</button>
+        </div>
+        <div class="hint" id="cutoutHint">Double-click (or double-tap) a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.</div>
       </div>
 
       <div class="group">
@@ -584,6 +604,7 @@ table.results .extrap{color:var(--warn)}
   <div class="center">
     <div class="canvas-wrap" id="canvasWrap">
       <canvas id="gelCanvas"></canvas>
+      <input id="laneInlineEditor" type="text" aria-label="Lane name" autocomplete="off" hidden>
       <div class="empty" id="emptyState">
         <div class="box" id="emptyBox" role="button" tabindex="0">
           <svg width="46" height="46" viewBox="0 0 64 64" aria-hidden="true"><rect x="4" y="4" width="56" height="56" rx="10" fill="none" stroke="#2e3c4f" stroke-width="2"/><g fill="#38bdf8"><rect x="12" y="14" width="10" height="3" rx="1"/><rect x="27" y="22" width="10" height="3" rx="1"/><rect x="42" y="30" width="10" height="3" rx="1"/></g><g fill="#fbbf24"><rect x="12" y="32" width="10" height="3" rx="1"/><rect x="27" y="42" width="10" height="3" rx="1"/><rect x="42" y="47" width="10" height="3" rx="1"/></g></svg>
@@ -760,12 +781,15 @@ const state = {
   calib: {
     preset: 'generuler-1kb', sizes: LADDER_PRESETS['generuler-1kb'].sizes.slice(), offset: 0,
     model: 'linear', assignMode: 'auto', fit: null, points: [], warning: '',
+    guides: null, guideLaneId: null, // manual standard positions in working-image pixels
+    guideBands: null,                // ladder band positions when the guides were taken over
   },
   refMax: 1,            // strongest corrected signal on the gel (threshold reference)
   hover: null,          // { lane, idx } from electropherogram hover
   profileMode: 'raw',
   annot: {              // step 5 figure editor (positions/sizes in image px)
     tool: 'select', sel: null, draft: null, items: [], nextId: 1, style: null, caption: '',
+    figure: { angleHeaders: false, ticks: true, cutouts: [], cropY: [0, 0], spliced: false, callouts: [] },
     layers: { lanes: true, nums: true, bands: true, labels: true, caption: true },
     lineStyle: { dash: 'dashed', color: '#ffffff', width: 2 }, textStyle: { size: 14, color: '#ffffff', bold: true },
     exp: { format: 'png', scale: 1, dpi: 300, smooth: true },
@@ -1266,6 +1290,7 @@ function reorient(kind) {
   if (!state.base) return;
   if (kind !== 'fine') transformBase(kind);
   buildWorking(); renderDisplay();
+  if (kind === 'fine') { resetCalibrationGuides(); state.annot.undo = []; state.annot.redo = []; updateUndoButtons(); }
   if (kind !== 'fine') { initLayout(); scaleDetectDefaults(); resetAnnotations(); toast('Orientation changed: lanes re-detected.'); }
   fitView(); syncControls(); invalidate('analysis', 'laneUI');
 }
@@ -1371,9 +1396,27 @@ const gel = { canvas: $('#gelCanvas'), ctx: $('#gelCanvas').getContext('2d'), w:
 const toScreen = (x, y) => ({ x: state.view.ox + x * state.view.scale, y: state.view.oy + y * state.view.scale });
 const toImage = (sx, sy) => ({ x: (sx - state.view.ox) / state.view.scale, y: (sy - state.view.oy) / state.view.scale });
 
+/**
+ * Screen anchor for the gel image. When figure margins grow or shrink (headers, ticks,
+ * callouts), the view shifts so the image stays put; a different panel arrangement refits.
+ */
+let viewAnchor = null;
+function figureAnchor(layout) {
+  if (!layout) return { key: 'gel', dx: 0, dy: 0 };
+  return { key: layout.panels.map(p => [p.sx, p.sy, p.sw, p.sh].join()).join('|'), dx: layout.panels[0].dx, dy: layout.panels[0].dy };
+}
+function keepViewAnchored() {
+  const a = figureAnchor(state.step >= 4 ? getFigureLayout() : null), v = state.view;
+  if (!viewAnchor || viewAnchor.key !== a.key) { fitView(); return; }
+  v.ox += (viewAnchor.dx - a.dx) * v.scale; v.oy += (viewAnchor.dy - a.dy) * v.scale;
+  viewAnchor = a;
+}
+
 function fitView() {
   if (!state.img) return;
-  const pad = 28, W = state.img.width, H = state.img.height + (state.step === 5 ? captionHeight() : 0);
+  const layout = state.step >= 4 ? getFigureLayout() : null;
+  viewAnchor = figureAnchor(layout);
+  const pad = 28, W = layout ? layout.width : state.img.width, H = layout ? layout.height : state.img.height;
   const s = Math.min((gel.w - 2 * pad) / W, (gel.h - 2 * pad) / H);
   state.view.scale = s > 0 ? s : 1;
   state.view.ox = (gel.w - W * state.view.scale) / 2;
@@ -1428,6 +1471,7 @@ function initLayout(hints) {
 /** Evenly spaced lanes across the current lane extent (or the image width). */
 function generateGrid(n) {
   if (!state.img) return;
+  resetCalibrationGuides();
   n = clamp(Math.round(n) || 1, 1, 80);
   const W = state.img.width;
   let x0 = W * 0.04, x1 = W * 0.96;
@@ -1487,6 +1531,7 @@ function autoDetectLanes(forceCount, silent) {
   const minGap = gaps.length ? Math.min(...gaps) : W / 4;
   const width = clamp(median(spans.map(s => s.w)) * 0.95, 4, minGap * 0.92);
 
+  resetCalibrationGuides();
   state.lanes = spans.map(s => makeLane(s.c, width));
   state.lanes[0].isLadder = true;
   state.sel = state.lanes[0]; state.selBand = null;
@@ -1514,6 +1559,8 @@ function addLane() {
 }
 function deleteLane(L) {
   if (!L) return;
+  if (L.isLadder) resetCalibrationGuides();
+  if (inlineLaneEdit?.lane === L) closeLaneEditor(false);
   const i = laneIndex(L);
   state.lanes.splice(i, 1);
   state.sel = state.lanes[Math.min(i, state.lanes.length - 1)] || null;
@@ -1723,12 +1770,24 @@ function calibrate() {
   for (const L of state.lanes) for (const b of L.bands) { b.est = null; b.extrap = false; }
   const L = ladderLane();
   if (!L) { C.warning = 'No ladder lane selected. Mark one in step 2 or choose it above.'; return; }
+  if (C.guides && C.guideLaneId !== L.id) resetCalibrationGuides();
   const sizes = C.sizes.slice(clamp(C.offset | 0, 0, C.sizes.length));
   if (C.assignMode === 'auto') L.bands.forEach((b, i) => { b.size = i < sizes.length ? sizes[i] : null; });
-  const pts = L.bands.filter(b => b.size > 0).map(b => ({ x: b.rf, y: Math.log10(b.size), band: b }));
+  const guides = C.guides && C.guideLaneId === L.id ? C.guides : null;
+  const pts = guides
+    ? guides.filter(g => g.confirmed && g.size > 0 && Number.isFinite(g.y)).map(g => ({ x: (g.y - laneTop(L)) / Math.max(1, laneBot(L) - laneTop(L)), y: Math.log10(g.size), guide: g }))
+    : L.bands.filter(b => b.size > 0).map(b => ({ x: b.rf, y: Math.log10(b.size), band: b }));
   C.points = pts;
   const warn = [];
-  if (C.assignMode === 'auto' && L.bands.length !== sizes.length)
+  if (guides && guides.some(g => !g.confirmed))
+    warn.push(`${guides.filter(g => !g.confirmed).length} standard guide(s) still need placement. Only confirmed positions are used for calibration.`);
+  if (guides) {
+    const outside = guides.filter(g => g.y < laneTop(L) || g.y > laneBot(L)).length;
+    if (outside) warn.push(`${outside} standard guide(s) lie outside the current well/front interval. Their image positions are preserved; reposition them if needed.`);
+    if (C.guideBands != null && C.guideBands !== ladderBandSignature(L))
+      warn.push('Ladder bands changed after the guides were placed by hand; the manual guides still define the calibration. Use Auto-assign to rebuild them from the bands.');
+  }
+  if (!guides && C.assignMode === 'auto' && L.bands.length !== sizes.length)
     warn.push(`Ladder lane has ${L.bands.length} bands, but ${sizes.length} sizes are expected. Check the assignments below, add or delete bands in step 3, or skip top sizes.`);
   if (pts.length < 2) { warn.push('At least 2 assigned ladder bands are needed to fit a curve.'); C.warning = warn.join(' '); return; }
   C.fit = fitModel(pts, C.model);
@@ -1741,6 +1800,60 @@ function calibrate() {
     b.extrap = b.rf < C.fit.minX - pad || b.rf > C.fit.maxX + pad;
   }
 }
+
+/** Automatic guides are derived, never persisted until a marker is edited. */
+function getCalibrationGuides() {
+  const C = state.calib, L = ladderLane();
+  if (!L || !state.img) return [];
+  if (C.guides && C.guideLaneId === L.id) return C.guides;
+  const sizes = C.sizes.slice(clamp(C.offset | 0, 0, C.sizes.length));
+  const yT = laneTop(L), span = Math.max(1, laneBot(L) - yT), bounds = calibrationGuideBounds(L);
+  const seen = new Map(), used = new Set();
+  return sizes.map((size, i) => {
+    // Repeated sizes get distinct ids and distinct bands, so each guide moves independently.
+    const n = (seen.get(size) || 0) + 1; seen.set(size, n);
+    const b = C.assignMode === 'auto' ? L.bands[i] : L.bands.find(b => b.size === size && !used.has(b));
+    if (b) used.add(b);
+    return { id: n > 1 ? `${L.id}:${size}:${n}` : `${L.id}:${size}`, size, laneId: L.id, confirmed: !!b,
+      y: clamp(yT + (b ? b.rf : (i + 1) / (sizes.length + 1)) * span, bounds.min, bounds.max) };
+  });
+}
+
+function calibrationGuideBounds(L) {
+  const max = Math.max(0, state.img.height - 1);
+  return { min: clamp(laneTop(L), 0, max), max: clamp(laneBot(L), 0, max) };
+}
+
+/** Keep standards independent of detected band objects, which reanalysis replaces. */
+function beginCalibrationGuideEdit(id) {
+  const C = state.calib, L = ladderLane(), guides = getCalibrationGuides();
+  if (!L || !guides.some(g => g.id === id)) return null;
+  if (!C.guides || C.guideLaneId !== L.id) {
+    C.guides = guides.map(g => ({ ...g })); C.guideLaneId = L.id; C.guideBands = ladderBandSignature(L);
+  }
+  return C.guides.find(g => g.id === id) || null;
+}
+
+function refreshCalibrationGuides() {
+  calibrate();
+  invalidate('table', 'calib', 'gel', 'profile', 'badges');
+}
+
+function moveCalibrationGuide(id, y) {
+  if (!Number.isFinite(y)) return null;
+  const g = beginCalibrationGuideEdit(id), L = ladderLane();
+  if (!g || !L) return null;
+  const bounds = calibrationGuideBounds(L);
+  g.y = clamp(y, bounds.min, bounds.max); g.confirmed = true;
+  refreshCalibrationGuides();
+  return g;
+}
+
+function resetCalibrationGuides() {
+  const C = state.calib;
+  C.guides = null; C.guideLaneId = null; C.guideBands = null; C.assignMode = 'auto';
+}
+const ladderBandSignature = L => L.bands.map(b => b.rf.toFixed(4)).join();
 
 /* ==========================================================================
    9. RENDERING
@@ -1774,9 +1887,16 @@ function observeCanvas(obj, onResize) {
 }
 
 /** Band label for overlays. mode: 'size' | 'num'. */
+function assignedLadderSize(L, b) {
+  if (!L.isLadder) return null;
+  if (!state.calib.guides || state.calib.guideLaneId !== L.id) return b.size;
+  const y = laneTop(L) + b.rf * (laneBot(L) - laneTop(L));
+  const match = state.calib.guides.filter(g => g.confirmed && Math.abs(g.y - y) <= 3).sort((a, b) => Math.abs(a.y - y) - Math.abs(b.y - y))[0];
+  return match ? match.size : null;
+}
 function bandLabel(L, b, bi, mode) {
   if (mode === 'num') return String(bi + 1);
-  if (L.isLadder) return b.size > 0 ? fmtBp(b.size) : '';
+  if (L.isLadder) { const size = assignedLadderSize(L, b); return size > 0 ? fmtBp(size) : ''; }
   if (b.est > 0) return (b.extrap ? '~' : '') + fmtBp(b.est);
   return '';
 }
@@ -1869,21 +1989,26 @@ function drawGel() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!state.img) return;
-  const v = state.view, { width: W, height: H } = state.img, capH = state.step === 5 ? captionHeight() : 0;
+  keepViewAnchored();
+  const v = state.view, { width: W, height: H } = state.img;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (state.step >= 4) {
+    const overlay = state.step === 4 ? p => drawOverlays(ctx, (x, y) => toScreen(p.dx + x - p.sx, p.dy + y - p.sy), {
+      u: 1, interactive: true, step: 4, guides: true, lanes: true, nums: false, bands: true, labels: 'size',
+    }) : null;
+    drawComposition(ctx, v.scale, v.ox, v.oy, { editing: true, overlay });
+    if (state.step === 5) drawAnnotSelection(ctx);
+    positionLaneEditor();
+    refreshExportUI();
+    return;
+  }
   ctx.shadowColor = 'rgba(0,0,0,.6)'; ctx.shadowBlur = 24;
-  ctx.fillStyle = '#000'; ctx.fillRect(v.ox, v.oy, W * v.scale, (H + capH) * v.scale);
+  ctx.fillStyle = '#000'; ctx.fillRect(v.ox, v.oy, W * v.scale, H * v.scale);
   ctx.shadowBlur = 0;
   ctx.setTransform(dpr * v.scale, 0, 0, dpr * v.scale, dpr * v.ox, dpr * v.oy);
   ctx.imageSmoothingEnabled = v.scale < 2;
   ctx.drawImage(state.dispCanvas, 0, 0);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  if (state.step === 5) {
-    drawComposition(ctx, v.scale, v.ox, v.oy);
-    drawAnnotSelection(ctx);
-    refreshExportUI();
-    return;
-  }
   const step = state.step, hasFit = !!state.calib.fit;
   drawOverlays(ctx, toScreen, {
     u: 1, interactive: true, step,
@@ -1923,10 +2048,13 @@ function defaultAnnotStyle() {
   };
 }
 function resetAnnotations() {
+  closeLaneEditor(false);
   const A = state.annot, base = Math.max(1, Math.max(state.img.width, state.img.height) / 1000);
   const ink = imageLooksLight() ? '#111111' : '#ffffff';
   A.style = defaultAnnotStyle();
   A.items = []; A.sel = null; A.draft = null; A.caption = ''; A.undo = []; A.redo = [];
+  A.figure = { angleHeaders: false, ticks: true, cutouts: [], cropY: [0, state.img.height], spliced: false, callouts: [] };
+  cutoutEdit = null; resetCalibrationGuides();
   A.lineStyle = { dash: 'dashed', color: ink, width: Math.max(1, Math.round(2 * base)) };
   A.textStyle = { size: Math.round(14 * base), color: ink, bold: true };
   A.exp.scale = 1;
@@ -1946,29 +2074,31 @@ function captionText() {
 const captionHeight = () => (state.annot.style && state.annot.layers.caption && captionText() ? Math.round(state.annot.style.labelSize * 2.1) : 0);
 
 /** All drawable composition elements, in drawing order, in image-pixel coordinates. */
-function compositionElements() {
+function compositionElements(layers = state.annot.layers, headersOnly = false) {
   const A = state.annot, S = A.style, out = [];
+  if (headersOnly) layers = { nums: layers.nums };             // layout pass: only lane headers matter
   if (!state.img || !S) return out;
   state.lanes.forEach((L, li) => {
     const yT = laneTop(L), yB = laneBot(L), hw = L.width / 2;
     const laneCol = L.isLadder ? COLORS.ladder : COLORS.lane;
-    if (A.layers.lanes) out.push({ kind: 'laneBox', color: laneCol, pts: [[L.xTop - hw, yT], [L.xTop + hw, yT], [L.xBot + hw, yB], [L.xBot - hw, yB]] });
+    if (layers.lanes) out.push({ kind: 'laneBox', color: laneCol, pts: [[L.xTop - hw, yT], [L.xTop + hw, yT], [L.xBot + hw, yB], [L.xBot - hw, yB]] });
     L.bands.forEach((b, bi) => {
       const y = yT + b.rf * (yB - yT), cx = L.xTop + b.rf * (L.xBot - L.xTop);
-      if (A.layers.bands) out.push({ kind: 'bandLine', x1: cx - hw, x2: cx + hw, y, width: S.bandWidth, color: S.bandAuto ? (L.isLadder ? COLORS.ladder : COLORS.band) : S.bandColor });
-      if (!A.layers.labels) return;
+      if (layers.bands) out.push({ kind: 'bandLine', x1: cx - hw, x2: cx + hw, y, width: S.bandWidth, color: S.bandAuto ? (L.isLadder ? COLORS.ladder : COLORS.band) : S.bandColor });
+      if (!layers.labels) return;
       const lab = b.lab || {}, auto = bandLabel(L, b, bi, 'size');
       const text = lab.text ? lab.text : auto, size = lab.size || S.labelSize;
       if (!text) return;
       out.push({ kind: 'bandLabel', lane: L, band: b, text, size, bold: S.bold, hidden: !!lab.hidden, color: lab.color || S.labelColor,
                  x: cx + (lab.dx || 0), y: y - S.bandWidth / 2 - 0.28 * size + (lab.dy || 0) });
     });
-    if (A.layers.nums) {
+    if (layers.nums) {
       const lab = L.numLab || {}, size = lab.size || S.laneSize;
       out.push({ kind: 'laneLabel', lane: L, text: lab.text ? lab.text : `${li + 1}${L.isLadder ? ' M' : ''}`, size, bold: S.bold, hidden: !!lab.hidden,
                  color: lab.color || (S.laneAuto ? laneCol : S.laneColor), x: L.xTop + (lab.dx || 0), y: Math.max(yT - 0.55 * size, size) + (lab.dy || 0) });
     }
   });
+  if (headersOnly) return out;
   for (const it of A.items) {
     if (it.type === 'text') out.push({ kind: 'text', item: it, text: it.text, size: it.size, bold: it.bold, color: it.color, x: it.x, y: it.y });
     else out.push({ kind: 'line', item: it });
@@ -1978,16 +2108,19 @@ function compositionElements() {
 /** Bounding box of a text element (alphabetic baseline at e.y, centred on e.x). */
 function elBox(e) {
   const w = textWidth(e.text, e.size, e.bold);
-  return { x0: e.x - w / 2, x1: e.x + w / 2, y0: e.y - 0.8 * e.size, y1: e.y + 0.25 * e.size };
+  const x0 = e.angle ? 0 : -w / 2, corners = [[x0, -0.8 * e.size], [x0 + w, -0.8 * e.size], [x0 + w, 0.25 * e.size], [x0, 0.25 * e.size]];
+  const a = e.angle || 0, c = Math.cos(a), s = Math.sin(a);
+  const pts = corners.map(([x, y]) => ({ x: e.x + x * c - y * s, y: e.y + x * s + y * c }));
+  return { x0: Math.min(...pts.map(p => p.x)), x1: Math.max(...pts.map(p => p.x)), y0: Math.min(...pts.map(p => p.y)), y1: Math.max(...pts.map(p => p.y)) };
 }
 const dashFor = (style, w) => style === 'dashed' ? [w * 4, w * 2.6] : style === 'dotted' ? [0.01, w * 2.2] : [];
 
-/** Draw the full annotated figure: image px (x,y) → (ox + x·k, oy + y·k). */
-function drawComposition(ctx, k, ox, oy) {
+/** Render projected vector elements; screen and export use the same primitives. */
+function drawCompositionElements(ctx, k, ox, oy, elements) {
   const A = state.annot, S = A.style; if (!S) return;
-  const M = (x, y) => [ox + x * k, oy + y * k], W = state.img.width, H = state.img.height;
+  const M = (x, y) => [ox + x * k, oy + y * k];
   ctx.save(); ctx.lineJoin = 'round';
-  for (const e of compositionElements()) {
+  for (const e of elements) {
     if (e.hidden) continue;
     switch (e.kind) {
       case 'laneBox': {
@@ -2010,47 +2143,245 @@ function drawComposition(ctx, k, ox, oy) {
       }
       default: {                                                        // bandLabel / laneLabel / text
         const [x, y] = M(e.x, e.y), px = e.size * k;
-        ctx.font = fontSpec(px, e.bold); ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-        if (S.halo) { ctx.lineWidth = Math.max(1, px * 0.22); ctx.strokeStyle = haloFor(e.color); ctx.setLineDash([]); ctx.strokeText(e.text, x, y); }
-        ctx.fillStyle = e.color; ctx.fillText(e.text, x, y);
+        ctx.save(); ctx.translate(x, y); ctx.rotate(e.angle || 0);
+        ctx.font = fontSpec(px, e.bold); ctx.textAlign = e.angle ? 'left' : 'center'; ctx.textBaseline = 'alphabetic';
+        if (S.halo) { ctx.lineWidth = Math.max(1, px * 0.22); ctx.strokeStyle = haloFor(e.color); ctx.setLineDash([]); ctx.strokeText(e.text, 0, 0); }
+        ctx.fillStyle = e.color; ctx.fillText(e.text, 0, 0); ctx.restore();
       }
     }
-  }
-  const capH = captionHeight();
-  if (capH) {
-    const light = imageLooksLight(), [x0, y0] = M(0, H);
-    ctx.fillStyle = light ? '#ffffff' : '#0a0d12'; ctx.fillRect(x0, y0, W * k, capH * k);
-    ctx.font = fontSpec(S.labelSize * 0.95 * k, false); ctx.fillStyle = light ? '#1f2937' : '#cbd5e1';
-    ctx.textAlign = 'left'; ctx.textBaseline = 'middle'; ctx.fillText(captionText(), x0 + S.labelSize * 0.7 * k, y0 + capH * k / 2);
   }
   ctx.restore();
 }
 
+/* ---- ADD: shared source → figure layout. All distances remain image pixels. ---- */
+let cutoutEdit = null, inlineLaneEdit = null, lastLaneTap = null;
+
+function getFigureLayout({ original = !!cutoutEdit || state.step < 5, exporting = false } = {}) {
+  const A = state.annot, F = A.figure, W = state.img.width, H = state.img.height;
+  const spliced = !original && F.spliced && F.cutouts.length > 0;
+  const [y0, y1] = spliced ? F.cropY : [0, H];
+  const rects = spliced ? F.cutouts.slice().sort((a, b) => a.x - b.x) : [{ id: 'original', x: 0, width: W }];
+  const size = A.style ? A.style.laneSize : 13, tickSize = A.style ? A.style.labelSize : 11;
+  const guides = getCalibrationGuides(), pad = Math.max(8, size * 0.7);
+  let left = F.ticks && guides.length ? Math.max(...guides.map(g => textWidth(String(g.size), tickSize, false)), tickSize * 2) + pad * 2 : pad;
+  const shown = F.callouts.filter(c => c.visible).length;
+  const right = shown ? textWidth(`← ${shown}`, size, true) + pad * 3 : pad;
+  let top = size * 2 + pad, x = left;
+  const panels = rects.map(r => {
+    const p = { id: r.id, sx: r.x, sy: y0, sw: r.width, sh: y1 - y0, dx: x, dy: top };
+    x += r.width + 8; return p;
+  });
+  const imageWidth = x - left - 8, imageHeight = y1 - y0;
+  const L = { width: left + imageWidth + right, height: 0, left, right, top, imageWidth, imageHeight, panels, spliced, captionY: 0 };
+  // Reserve actual rotated header bounds, including manual label offsets.
+  const headers = projectedFigureElements(L, !exporting && state.step === 4, true).filter(e => !e.hidden);
+  const boxes = headers.map(elBox), minX = Math.min(pad, ...boxes.map(b => b.x0)), minY = Math.min(pad, ...boxes.map(b => b.y0));
+  const extraLeft = Math.max(0, pad - minX), extraTop = Math.max(0, pad - minY);
+  left += extraLeft; top += extraTop;
+  panels.forEach(p => { p.dx += extraLeft; p.dy += extraTop; });
+  L.left = left; L.top = top; L.width += extraLeft;
+  L.width = Math.max(L.width, ...boxes.map(b => b.x1 + extraLeft + pad));
+  L.captionY = top + imageHeight + pad;
+  L.capH = exporting || state.step === 5 ? captionHeight() : 0;
+  L.height = Math.ceil(L.captionY + L.capH + pad);
+  L.width = Math.ceil(L.width);
+  return L;
+}
+function sourceToFigure(p, panel) { return { x: panel.dx + p.x - panel.sx, y: panel.dy + p.y - panel.sy }; }
+function figureToSource(p, layout = getFigureLayout()) {
+  const panel = layout.panels.find(q => p.x >= q.dx && p.x <= q.dx + q.sw && p.y >= q.dy && p.y <= q.dy + q.sh);
+  return panel ? { x: panel.sx + p.x - panel.dx, y: panel.sy + p.y - panel.dy, panelId: panel.id } : null;
+}
+function projectedFigureElements(layout = getFigureLayout(), analysis = false, headersOnly = false) {
+  // Step 4 takes lane headers from the figure; drawOverlays supplies its interactive lanes and bands.
+  const out = [], elements = compositionElements(analysis ? { lanes: false, bands: false, labels: false, nums: true } : state.annot.layers, headersOnly);
+  for (const panel of layout.panels) for (const e of elements) {
+    if (e.kind === 'laneLabel') {
+      const lab = e.lane.numLab || {}, cx = laneCenterAt(e.lane, panel.sy);
+      if (cx < panel.sx || cx >= panel.sx + panel.sw) continue;
+      out.push({ ...e, panelId: panel.id, x: panel.dx + cx - panel.sx + (lab.dx || 0), y: layout.top - e.size * 0.65 + (lab.dy || 0),
+        angle: state.annot.figure.angleHeaders && String(lab.text || '').trim().length > 1 ? -Math.PI / 4 : 0 });
+    } else {
+      const dx = panel.dx - panel.sx, dy = panel.dy - panel.sy, copy = { ...e, panelId: panel.id };
+      if (e.kind === 'laneBox') copy.pts = e.pts.map(([x, y]) => [x + dx, y + dy]);
+      else if (e.kind === 'line') copy.item = { ...e.item, x1: e.item.x1 + dx, x2: e.item.x2 + dx, y1: e.item.y1 + dy, y2: e.item.y2 + dy, source: e.item };
+      else if (e.kind === 'bandLine') Object.assign(copy, { x1: e.x1 + dx, x2: e.x2 + dx, y: e.y + dy });
+      else Object.assign(copy, { x: e.x + dx, y: e.y + dy });
+      if (e.item && e.kind !== 'line') copy.item = e.item;
+      out.push(copy);
+    }
+  }
+  return out;
+}
+
+/** Full WYSIWYG renderer shared by the screen and every export encoder. */
+function drawComposition(ctx, k, ox, oy, { editing = false, layout = getFigureLayout(), overlay = null } = {}) {
+  const A = state.annot, F = A.figure, S = A.style, L = layout;
+  if (!S) return;
+  const M = (x, y) => [ox + x * k, oy + y * k], elements = projectedFigureElements(L, editing && state.step === 4);
+  ctx.save(); ctx.fillStyle = '#fff'; ctx.fillRect(ox, oy, L.width * k, L.height * k);
+  for (const p of L.panels) {
+    const [x, y] = M(p.dx, p.dy);
+    ctx.save(); ctx.beginPath(); ctx.rect(x, y, p.sw * k, p.sh * k); ctx.clip();
+    if (editing) ctx.imageSmoothingEnabled = k < 2;                   // show real pixels when zoomed in on screen
+    ctx.drawImage(state.dispCanvas, p.sx, p.sy, p.sw, p.sh, x, y, p.sw * k, p.sh * k);
+    drawCompositionElements(ctx, k, ox, oy, elements.filter(e => e.panelId === p.id && e.kind !== 'laneLabel'));
+    if (overlay) overlay(p);
+    if (editing && A.draft) {
+      const d = A.draft, a = sourceToFigure({ x: d.x1, y: d.y1 }, p), b = sourceToFigure({ x: d.x2, y: d.y2 }, p);
+      drawCompositionElements(ctx, k, ox, oy, [{ kind: 'line', item: { ...d, x1: a.x, y1: a.y, x2: b.x, y2: b.y } }]);
+    }
+    if (editing && !cutoutEdit) drawGuideLines(ctx, p, k, ox, oy);
+    for (const c of F.callouts.filter(c => c.visible && c.y >= p.sy && c.y <= p.sy + p.sh)) {
+      const yy = oy + (p.dy + c.y - p.sy) * k;
+      ctx.setLineDash([5 * k, 4 * k]); ctx.strokeStyle = imageLooksLight() ? '#111111' : '#ffffff'; ctx.lineWidth = Math.max(1, k);
+      ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(x + p.sw * k, yy); ctx.stroke(); ctx.setLineDash([]);
+    }
+    ctx.restore();
+    if (L.spliced) { ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(1, k); ctx.setLineDash([]); ctx.strokeRect(x, y, p.sw * k, p.sh * k); }
+  }
+  drawCompositionElements(ctx, k, ox, oy, elements.filter(e => e.kind === 'laneLabel'));
+  ctx.fillStyle = '#111'; ctx.strokeStyle = '#111'; ctx.lineWidth = Math.max(0.7, k); ctx.setLineDash([]);
+  ctx.font = fontSpec(S.labelSize * k, false); ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  const p0 = L.panels[0], yAt = y => p0.dy + y - p0.sy;
+  if (F.ticks && getCalibrationGuides().length) {
+    const [hx, hy] = M(L.left - 9, L.top - S.labelSize); ctx.fillText('bp', hx, hy);
+    for (const g of getCalibrationGuides().filter(g => g.confirmed && g.y >= p0.sy && g.y <= p0.sy + p0.sh)) {
+      const [x, y] = M(L.left, yAt(g.y));
+      ctx.beginPath(); ctx.moveTo(x - 7 * k, y); ctx.lineTo(x, y); ctx.stroke(); ctx.fillText(String(g.size), x - 11 * k, y);
+    }
+  }
+  ctx.font = fontSpec(S.laneSize * k, true); ctx.textAlign = 'left';
+  F.callouts.filter(c => c.visible && c.y >= p0.sy && c.y <= p0.sy + p0.sh).forEach((c, i) => {   // number only the callouts shown
+    const [x, y] = M(L.left + L.imageWidth + 8, yAt(c.y)); ctx.fillText(`← ${i + 1}`, x, y);
+  });
+  if (L.capH) {
+    const [x, y] = M(8, L.captionY + L.capH / 2);
+    ctx.font = fontSpec(S.labelSize * 0.95 * k, false); ctx.fillStyle = '#1f2937'; ctx.fillText(captionText(), x, y, (L.width - 16) * k);
+  }
+  if (editing && cutoutEdit) drawCutoutDrafts(ctx, L, k, ox, oy);
+  ctx.restore();
+}
+function drawGuideLines(ctx, panel, k, ox, oy) {
+  const lane = ladderLane(); if (!lane) return;
+  for (const g of getCalibrationGuides()) {
+    if (g.y < panel.sy || g.y > panel.sy + panel.sh) continue;
+    // The line reaches past the lane edges to grab handles, which stay clear of the ladder bands.
+    const cx = laneCenterAt(lane, g.y), ext = GUIDE_HANDLE_PX / k, left = cx - lane.width / 2 - ext, right = cx + lane.width / 2 + ext;
+    if (right < panel.sx || left > panel.sx + panel.sw) continue;
+    const a = sourceToFigure({ x: left, y: g.y }, panel), b = sourceToFigure({ x: right, y: g.y }, panel);
+    const col = g.confirmed ? '#42e86c' : 'rgba(66,232,108,.55)';
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.3, k * 1.4); ctx.setLineDash(g.confirmed ? [] : [3 * k, 3 * k]);
+    ctx.beginPath(); ctx.moveTo(ox + a.x * k, oy + a.y * k); ctx.lineTo(ox + b.x * k, oy + b.y * k); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col;
+    for (const q of [a, b]) { ctx.beginPath(); ctx.arc(ox + q.x * k, oy + q.y * k, 3.5, 0, Math.PI * 2); ctx.fill(); }
+  }
+}
+const GUIDE_HANDLE_PX = 10;   // on-screen length of a guide's grab handle beyond each lane edge
+function hitFigureGuide(p, layout = getFigureLayout()) {
+  const q = figureToSource(p, layout), lane = ladderLane(); if (!q || !lane) return null;
+  if (Math.abs(q.x - laneCenterAt(lane, q.y)) > lane.width / 2 + (GUIDE_HANDLE_PX + 6) / state.view.scale) return null;
+  const tolerance = 6 / state.view.scale;
+  return getCalibrationGuides().slice().sort((a, b) => Math.abs(a.y - q.y) - Math.abs(b.y - q.y)).find(g => Math.abs(g.y - q.y) <= tolerance) || null;
+}
+
+/* ---- ADD: cutout drafts and inline lane-name editing (transient UI only). ---- */
+function startCutoutEdit() {
+  if (!state.img) return;
+  closeLaneEditor(true); endEdit(); setTool('select');
+  const F = state.annot.figure;
+  cutoutEdit = { cutouts: F.cutouts.map(c => ({ ...c })), cropY: F.cropY.slice(), selId: null, nextId: state.annot.nextId };
+  annotSelect(null); syncFigureUI(); fitView();
+}
+function finishCutoutEdit(commit) {
+  if (!cutoutEdit) return;
+  if (commit) {
+    // Done with every cutout deleted returns the figure to the full gel (undoable like any edit).
+    beginEdit(); const F = state.annot.figure, any = cutoutEdit.cutouts.length > 0;
+    F.cutouts = cutoutEdit.cutouts.map(c => ({ ...c })).sort((a, b) => a.x - b.x);
+    F.cropY = any ? cutoutEdit.cropY.slice() : [0, state.img.height]; F.spliced = any; state.annot.nextId = cutoutEdit.nextId; endEdit();
+  }
+  cutoutEdit = null; syncFigureUI(); fitView();
+}
+function drawCutoutDrafts(ctx, L, k, ox, oy) {
+  const p = L.panels[0], [y0, y1] = cutoutEdit.cropY;
+  for (const r of cutoutEdit.cutouts) {
+    const q = sourceToFigure({ x: r.x, y: y0 }, p), x = ox + q.x * k, y = oy + q.y * k;
+    const w = r.width * k, h = (y1 - y0) * k;
+    ctx.fillStyle = 'rgba(56,189,248,.1)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = r.id === cutoutEdit.selId ? '#fff' : '#38bdf8'; ctx.lineWidth = 1.5; ctx.setLineDash([]); ctx.strokeRect(x, y, w, h);
+    for (const [hx, hy] of [[x,y],[x+w,y],[x,y+h],[x+w,y+h],[x+w/2,y],[x+w/2,y+h],[x,y+h/2],[x+w,y+h/2]]) { ctx.fillStyle = '#fff'; ctx.fillRect(hx - 4, hy - 4, 8, 8); }
+  }
+}
+function hitCutout(p) {
+  if (!cutoutEdit) return null;
+  const t = 7 / state.view.scale, [y0, y1] = cutoutEdit.cropY;
+  const rects = cutoutEdit.cutouts.slice().sort((a, b) => (a.id === cutoutEdit.selId ? -1 : b.id === cutoutEdit.selId ? 1 : 0));
+  for (const r of rects) {
+    if (p.x < r.x - t || p.x > r.x + r.width + t || p.y < y0 - t || p.y > y1 + t) continue;
+    const edgeX = Math.abs(p.x - r.x) <= t ? 'left' : Math.abs(p.x - r.x - r.width) <= t ? 'right' : '';
+    const edgeY = Math.abs(p.y - y0) <= t ? 'top' : Math.abs(p.y - y1) <= t ? 'bottom' : '';
+    return { rect: r, edgeX, edgeY };
+  }
+  return null;
+}
+function syncFigureUI() {
+  const F = state.annot.figure, editing = !!cutoutEdit;
+  $('#angleHeaders').checked = F.angleHeaders; $('#figureTicks').checked = F.ticks;
+  $('#btnShowOriginal').disabled = !F.cutouts.length || editing;
+  $('#btnShowOriginal').textContent = F.spliced ? 'Show original' : 'Show cutouts';
+  ['#btnCutoutsDone', '#btnCutoutsCancel', '#btnDeleteCutout'].forEach(id => $(id).hidden = !editing);
+  $('#btnDeleteCutout').disabled = !editing || !cutoutEdit.selId;
+  $('#btnAddCutout').disabled = editing;
+  updateUndoButtons();
+  $('#cutoutHint').textContent = editing ? 'Drag empty space to draw a cutout. Drag an edge to resize; top and bottom are shared. Done applies (with none left, it shows the full gel); Cancel restores.' : 'Double-click (or double-tap) a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.';
+}
+function visibleHeaderLanes() {
+  const ids = new Set(); return projectedFigureElements(undefined, false, true).filter(e => e.kind === 'laneLabel' && !e.hidden).filter(e => !ids.has(e.lane.id) && ids.add(e.lane.id)).map(e => e.lane);
+}
+function openLaneEditor(lane) {
+  closeLaneEditor(true);
+  if (!visibleHeaderLanes().includes(lane)) return;
+  endEdit(); beginEdit();
+  inlineLaneEdit = { lane, originalLab: lane.numLab ? { ...lane.numLab } : null };
+  const input = $('#laneInlineEditor'); input.value = lane.numLab?.text || ''; input.placeholder = `${laneIndex(lane) + 1}${lane.isLadder ? ' M' : ''}`;
+  input.hidden = false; annotSelect({ kind: 'lane', lane }); positionLaneEditor(); input.focus(); input.select();
+}
+function positionLaneEditor() {
+  if (!inlineLaneEdit) return;
+  const e = projectedFigureElements(undefined, false, true).find(e => e.lane === inlineLaneEdit.lane && !e.hidden);
+  if (!e || state.step !== 5) { closeLaneEditor(true); return; }
+  const p = toScreen(e.x, e.y), input = $('#laneInlineEditor');
+  input.style.left = `${clamp(p.x - 80, 0, Math.max(0, gel.w - 160))}px`; input.style.top = `${clamp(p.y - 32, 0, Math.max(0, gel.h - 32))}px`;
+  input.style.transform = 'none'; // Keep the typing surface upright and inside the viewport.
+}
+function closeLaneEditor(commit) {
+  if (!inlineLaneEdit) return;
+  const edit = inlineLaneEdit, input = $('#laneInlineEditor'); inlineLaneEdit = null;
+  const lab = edit.lane.numLab = edit.lane.numLab || {};
+  if (commit) lab.text = input.value.trim();
+  else edit.lane.numLab = edit.originalLab;
+  input.hidden = true; endEdit(); renderInspector(); invalidate('gel', 'table');
+}
+
 /** Selection outline / line handles on screen. */
 function drawAnnotSelection(ctx) {
-  const A = state.annot, v = state.view, S = (x, y) => [v.ox + x * v.scale, v.oy + y * v.scale];
-  ctx.save();
-  if (A.draft) {
-    const d = A.draft, [ax, ay] = S(d.x1, d.y1), [bx, by] = S(d.x2, d.y2), w = Math.max(0.5, d.width * v.scale);
-    ctx.lineCap = d.dash === 'dotted' ? 'round' : 'butt'; ctx.setLineDash(dashFor(d.dash, w));
-    ctx.strokeStyle = d.color; ctx.lineWidth = w; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-  }
-  const sel = A.sel;
-  if (sel && sel.kind === 'item' && sel.item.type === 'line') {
-    const it = sel.item;
-    ctx.setLineDash([]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1;
-    const [ax, ay] = S(it.x1, it.y1), [bx, by] = S(it.x2, it.y2);
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke();
-    [[ax, ay], [bx, by]].forEach(([x, y]) => { ctx.beginPath(); ctx.arc(x, y, 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 2; ctx.stroke(); });
-  } else if (sel && sel.kind !== 'caption') {
-    const e = elementForSel(sel);
-    if (e && !e.hidden) {
-      const b = elBox(e), [x0, y0] = S(b.x0, b.y0), [x1, y1] = S(b.x1, b.y1);
-      ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 - 3, y0 - 2, x1 - x0 + 6, y1 - y0 + 4);
+  const sel = state.annot.sel; if (!sel || cutoutEdit) return;
+  const L = getFigureLayout(), e = elementForSel(sel), v = state.view;
+  let b;
+  if (sel.kind === 'caption') b = { x0: 0, x1: L.width, y0: L.captionY, y1: L.captionY + captionHeight() };
+  else if (sel.kind === 'callout') {
+    const p = L.panels[0], y = p.dy + sel.callout.y - p.sy;
+    if (y < L.top || y > L.top + L.imageHeight) return;
+    b = { x0: L.left + L.imageWidth + 5, x1: L.width - 4, y0: y - state.annot.style.laneSize, y1: y + state.annot.style.laneSize };
+  } else if (e && !e.hidden && e.kind !== 'line') b = elBox(e);
+  ctx.save(); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3;
+  if (b) { const a = toScreen(b.x0, b.y0); ctx.setLineDash([4, 3]); ctx.strokeRect(a.x - 3, a.y - 2, (b.x1 - b.x0) * v.scale + 6, (b.y1 - b.y0) * v.scale + 4); }
+  if (e && e.kind === 'line') {
+    const panel = L.panels.find(p => p.id === e.panelId), it = e.item;
+    for (const [x, y] of [[it.x1, it.y1], [it.x2, it.y2]]) {
+      if (x < panel.dx || x > panel.dx + panel.sw || y < panel.dy || y > panel.dy + panel.sh) continue;
+      const p = toScreen(x, y); ctx.setLineDash([]); ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, Math.PI * 2); ctx.fillStyle = '#fff'; ctx.fill(); ctx.stroke();
     }
-  } else if (sel && sel.kind === 'caption' && captionHeight()) {
-    const [x0, y0] = S(0, state.img.height), [x1, y1] = S(state.img.width, state.img.height + captionHeight());
-    ctx.setLineDash([4, 3]); ctx.strokeStyle = COLORS.lane; ctx.lineWidth = 1.3; ctx.strokeRect(x0 + 1, y0 + 1, x1 - x0 - 2, y1 - y0 - 2);
   }
   ctx.restore();
 }
@@ -2066,10 +2397,10 @@ function resolveBand(sel) {
 function elementForSel(sel) {
   if (!sel) return null;
   const band = sel.kind === 'band' ? resolveBand(sel) : null;
-  return compositionElements().find(e =>
-    (sel.kind === 'item' && e.item === sel.item) ||
+  return projectedFigureElements().find(e => (!sel.panelId || e.panelId === sel.panelId) && (
+    (sel.kind === 'item' && (e.item === sel.item || e.item?.source === sel.item)) ||
     (sel.kind === 'band' && e.kind === 'bandLabel' && e.band === band) ||
-    (sel.kind === 'lane' && e.kind === 'laneLabel' && e.lane === sel.lane)) || null;
+    (sel.kind === 'lane' && e.kind === 'laneLabel' && e.lane === sel.lane))) || null;
 }
 /** Label-override object for a selected band/lane label (created on demand). */
 function ensureLab(sel) {
@@ -2079,33 +2410,40 @@ function ensureLab(sel) {
 }
 
 /** Hit-test the composition at image point p (topmost first). */
-function annotHit(p) {
-  const A = state.annot, tol = 6 / state.view.scale;
-  const sel = A.sel;
+function annotHit(p, tol = 6 / state.view.scale, layout = getFigureLayout()) {
+  const A = state.annot;
+  const sel = A.sel, source = figureToSource(p, layout);
   if (sel && sel.kind === 'item' && sel.item.type === 'line') {
-    const it = sel.item;
-    if (Math.hypot(p.x - it.x1, p.y - it.y1) <= tol * 1.5) return { kind: 'end', item: it, end: 1 };
-    if (Math.hypot(p.x - it.x2, p.y - it.y2) <= tol * 1.5) return { kind: 'end', item: it, end: 2 };
+    if (source) {
+      const it = sel.item;
+      if (Math.hypot(source.x - it.x1, source.y - it.y1) <= tol * 1.5) return { kind: 'end', item: it, end: 1 };
+      if (Math.hypot(source.x - it.x2, source.y - it.y2) <= tol * 1.5) return { kind: 'end', item: it, end: 2 };
+    }
   }
-  const els = compositionElements();
+  const callout = A.figure.callouts.find(c => c.visible && Math.abs(p.y - (layout.top + c.y - layout.panels[0].sy)) <= tol && p.x >= layout.left + layout.imageWidth + 3 && p.x <= layout.width);
+  if (callout) return { kind: 'callout', callout };
+  const els = projectedFigureElements(layout);
   for (let i = els.length - 1; i >= 0; i--) {
     const e = els[i];
     if (e.hidden) continue;
+    if (e.kind !== 'laneLabel' && (!source || source.panelId !== e.panelId)) continue;
     if (e.kind === 'line') {
       const it = e.item, dx = it.x2 - it.x1, dy = it.y2 - it.y1, L2 = dx * dx + dy * dy || 1;
       const t = clamp(((p.x - it.x1) * dx + (p.y - it.y1) * dy) / L2, 0, 1);
-      if (Math.hypot(p.x - (it.x1 + t * dx), p.y - (it.y1 + t * dy)) <= Math.max(tol, it.width / 2 + 2 / state.view.scale)) return { kind: 'item', item: it };
+      if (Math.hypot(p.x - (it.x1 + t * dx), p.y - (it.y1 + t * dy)) <= Math.max(tol, it.width / 2 + 2 / state.view.scale)) return { kind: 'item', item: it.source || it, panelId: e.panelId };
     } else if (e.kind === 'text' || e.kind === 'bandLabel' || e.kind === 'laneLabel') {
-      const b = elBox(e);
-      if (p.x >= b.x0 - tol && p.x <= b.x1 + tol && p.y >= b.y0 - tol && p.y <= b.y1 + tol) {
-        if (e.kind === 'text') return { kind: 'item', item: e.item };
-        if (e.kind === 'bandLabel') return { kind: 'band', lane: e.lane, band: e.band, rf: e.band.rf };
-        return { kind: 'lane', lane: e.lane };
+      const a = -(e.angle || 0), dx = p.x - e.x, dy = p.y - e.y;
+      const x = dx * Math.cos(a) - dy * Math.sin(a), y = dx * Math.sin(a) + dy * Math.cos(a);
+      const w = textWidth(e.text, e.size, e.bold), x0 = e.angle ? 0 : -w / 2;
+      if (x >= x0 - tol && x <= x0 + w + tol && y >= -e.size * 0.8 - tol && y <= e.size * 0.25 + tol) {
+        if (e.kind === 'text') return { kind: 'item', item: e.item, panelId: e.panelId };
+        if (e.kind === 'bandLabel') return { kind: 'band', lane: e.lane, band: e.band, rf: e.band.rf, panelId: e.panelId };
+        return { kind: 'lane', lane: e.lane, panelId: e.panelId };
       }
     }
   }
-  const capH = captionHeight(), H = state.img.height;
-  if (capH && p.y >= H && p.y <= H + capH && p.x >= 0 && p.x <= state.img.width) return { kind: 'caption' };
+  const capH = captionHeight();
+  if (capH && p.y >= layout.captionY && p.y <= layout.captionY + capH && p.x >= 0 && p.x <= layout.width) return { kind: 'caption' };
   return null;
 }
 
@@ -2115,23 +2453,33 @@ function annotSnapshot() {
   const A = state.annot;
   return JSON.stringify({
     items: A.items, style: A.style, layers: A.layers, caption: A.caption,
-    lanes: state.lanes.map(L => ({ id: L.id, lab: L.numLab || null, bands: L.bands.filter(b => b.lab).map(b => ({ rf: b.rf, lab: b.lab })) })),
+    figure: A.figure, nextId: A.nextId, guides: state.calib.guides, guideLaneId: state.calib.guideLaneId, guideBands: state.calib.guideBands,
+    calibConfig: { preset: state.calib.preset, sizes: state.calib.sizes, offset: state.calib.offset, assignMode: state.calib.assignMode, model: state.calib.model, ladderLaneId: ladderLane()?.id ?? null },
+    lanes: state.lanes.map(L => ({ id: L.id, lab: L.numLab || null, standards: L.isLadder ? L.bands.map(b => ({ rf: b.rf, size: b.size })) : null, bands: L.bands.filter(b => b.lab).map(b => ({ rf: b.rf, lab: b.lab })) })),
   });
 }
 function annotRestore(json) {
   const s = JSON.parse(json), A = state.annot;
-  Object.assign(A, { items: s.items, style: s.style, layers: s.layers, caption: s.caption, sel: null });
+  closeLaneEditor(false); cutoutEdit = null;
+  Object.assign(A, { items: s.items, style: s.style, layers: s.layers, caption: s.caption, figure: s.figure, nextId: s.nextId, sel: null });
+  if (s.calibConfig) {
+    const { ladderLaneId, ...config } = s.calibConfig; Object.assign(state.calib, config);
+    if (state.lanes.some(L => L.id === ladderLaneId)) state.lanes.forEach(L => { L.isLadder = L.id === ladderLaneId; });
+  }
+  state.calib.guides = s.guides; state.calib.guideLaneId = s.guideLaneId; state.calib.guideBands = s.guideBands ?? null;
   for (const L of state.lanes) {
     const ls = s.lanes.find(x => x.id === L.id);
     L.numLab = ls ? ls.lab : null;
     L.bands.forEach(b => { delete b.lab; });
+    if (L.isLadder && ls?.standards) L.bands.forEach(b => { const match = ls.standards.find(x => Math.abs(x.rf - b.rf) < 0.006); b.size = match ? match.size : null; });
     if (ls) ls.bands.forEach(({ rf, lab }) => {
       let best = null, bd = 0.01;
       L.bands.forEach(b => { const d = Math.abs(b.rf - rf); if (d < bd) { bd = d; best = b; } });
       if (best) best.lab = lab;
     });
   }
-  syncAnnotUI(); renderInspector(); invalidate('gel');
+  if (state.calib.guideLaneId && !state.lanes.some(L => L.id === state.calib.guideLaneId && L.isLadder)) resetCalibrationGuides();
+  calibrate(); syncAnnotUI(); renderInspector(); invalidate('gel', 'calib', 'table', 'profile', 'badges', 'laneUI');
 }
 function pushUndo(snap) {
   const A = state.annot;
@@ -2141,15 +2489,18 @@ function pushUndo(snap) {
 /** Call before a change; endEdit() records an undo step if anything actually changed. */
 function beginEdit() { if (pendingSnap == null) pendingSnap = annotSnapshot(); }
 function endEdit() { if (pendingSnap != null) { if (pendingSnap !== annotSnapshot()) pushUndo(pendingSnap); pendingSnap = null; } }
+const cutoutEditBlocksUndo = () => cutoutEdit && (toast('Choose Done or Cancel for the cutouts before using undo or redo.'), true);
 function undo() {
+  if (cutoutEditBlocksUndo()) return;
   endEdit(); const A = state.annot; if (!A.undo.length) return;
   A.redo.push(annotSnapshot()); annotRestore(A.undo.pop()); updateUndoButtons();
 }
 function redo() {
+  if (cutoutEditBlocksUndo()) return;
   endEdit(); const A = state.annot; if (!A.redo.length) return;
   A.undo.push(annotSnapshot()); annotRestore(A.redo.pop()); updateUndoButtons();
 }
-function updateUndoButtons() { $('#btnUndo').disabled = !state.annot.undo.length; $('#btnRedo').disabled = !state.annot.redo.length; }
+function updateUndoButtons() { $('#btnUndo').disabled = !!cutoutEdit || !state.annot.undo.length; $('#btnRedo').disabled = !!cutoutEdit || !state.annot.redo.length; }
 
 /* ---- Electropherogram ---- */
 const prof = { canvas: $('#profileCanvas'), ctx: $('#profileCanvas').getContext('2d'), w: 0, h: 0, dpr: 1, m: { l: 50, r: 14, t: 26, b: 30 } };
@@ -2346,7 +2697,8 @@ const STEP_HINTS = {
   5: '<b>Annotate</b>: drag labels to move · <kbd>L</kbd> line · <kbd>T</kbd> text · <kbd>Del</kbd> delete · <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo',
 };
 function goStep(n) {
-  if (state.step === 5 && n !== 5) { endEdit(); setTool('select'); }
+  if (state.step === 5 && n !== 5) { closeLaneEditor(true); if (cutoutEdit) finishCutoutEdit(false); endEdit(); setTool('select'); }
+  const old = state.step;
   state.step = n;
   $$('.step').forEach(b => b.classList.toggle('active', +b.dataset.step === n));
   $$('.panel').forEach(p => p.classList.toggle('active', +p.dataset.panel === n));
@@ -2354,6 +2706,7 @@ function goStep(n) {
   $('#stHint').textContent = ['Image', 'Lanes', 'Bands', 'Calibration & results', 'Annotate & export'][n - 1] + ' mode';
   $('#sidebar').scrollTop = 0;
   if (n === 5) { flush(); syncAnnotUI(); renderInspector(); }
+  if (state.img && (old >= 4) !== (n >= 4)) fitView();          // 4 ↔ 5 keeps the zoom (see keepViewAnchored)
   invalidate('gel', 'profile', 'calib');
 }
 
@@ -2416,7 +2769,7 @@ function renderTable() {
     L.bands.forEach((b, bi) => {
       n++;
       let size;
-      if (L.isLadder) size = b.size > 0 ? `<span class="std">${b.size}</span>` : '—';
+      if (L.isLadder) { const assigned = assignedLadderSize(L, b); size = assigned > 0 ? `<span class="std">${assigned}</span>` : '—'; }
       else size = b.est > 0 ? `<span class="${b.extrap ? 'extrap' : ''}" title="${b.extrap ? 'Extrapolated beyond the ladder range' : ''}">${b.extrap ? '~' : ''}${Math.round(b.est)}</span>` : '—';
       rows.push(`<tr data-l="${li}" data-b="${bi}" class="${L.isLadder ? 'ladder' : ''}"><td>${li + 1}${L.isLadder ? '<span class="tag">M</span>' : ''}</td><td>${bi + 1}${b.manual ? '<span class="tag m">man</span>' : ''}</td><td>${b.pos.toFixed(1)}</td><td>${b.rf.toFixed(4)}</td><td>${size}</td><td>${b.height.toFixed(1)}</td><td>${b.area.toFixed(0)}</td><td>${(100 * b.area / total).toFixed(1)}</td></tr>`);
     });
@@ -2446,6 +2799,18 @@ function renderCalibUI() {
   // Ladder assignment table
   const body = $('#ladderBody');
   if (!L) body.innerHTML = '<tr><td colspan="5" class="muted" style="font-family:var(--sans)">No ladder lane selected.</td></tr>';
+  else if (C.guides && C.guideLaneId === L.id) {
+    const span = Math.max(1, laneBot(L) - laneTop(L));
+    const rfMin = Math.floor(-laneTop(L) / span * 1000) / 1000;
+    const rfMax = Math.ceil((state.img.height - 1 - laneTop(L)) / span * 1000) / 1000;
+    body.innerHTML = C.guides.map((g, i) => {
+      const rf = (g.y - laneTop(L)) / span;
+      const estimate = fit && g.confirmed ? fit.predict(rf) : null;
+      const error = estimate > 0 ? 100 * (estimate - g.size) / g.size : null;
+      const cls = error == null ? '' : Math.abs(error) < 3 ? 'err-ok' : Math.abs(error) < 8 ? 'err-mid' : 'err-bad';
+      return `<tr><td>${i + 1}</td><td><input type="number" min="${rfMin}" max="${rfMax}" step="0.001" value="${rf.toFixed(3)}" data-guide-rf="${g.id}" aria-label="Rf for ${g.size} bp guide" style="width:70px"></td><td><label title="Only confirmed positions are used for calibration"><input type="checkbox" data-guide-include="${g.id}"${g.confirmed ? ' checked' : ''}> ${g.size}${g.confirmed ? '' : ' (place)'}</label></td><td>${estimate > 0 ? Math.round(estimate) : '—'}</td><td class="${cls}">${error == null ? '—' : (error > 0 ? '+' : '') + error.toFixed(1) + '%'}</td></tr>`;
+    }).join('');
+  }
   else if (!L.bands.length) body.innerHTML = '<tr><td colspan="5" class="muted" style="font-family:var(--sans)">No bands in the ladder lane.</td></tr>';
   else {
     body.innerHTML = L.bands.map((b, i) => {
@@ -2552,7 +2917,7 @@ function initUI() {
     if (!state.img) return;
     state.frontY = Math.max(v, state.wellY + 10); state.lanes.forEach(invalidateLane); invalidate('analysis');
   }, v => v + ' px');
-  $('#isLadder').addEventListener('change', e => setLadder(e.target.checked ? state.sel : null));
+  $('#isLadder').addEventListener('change', e => calibrationEdit(() => setLadder(e.target.checked ? state.sel : null)));
   $('#btnAddLane').addEventListener('click', addLane);
   $('#btnDelLane').addEventListener('click', () => deleteLane(state.sel));
   $('#btnStraighten').addEventListener('click', () => {
@@ -2585,30 +2950,44 @@ function initUI() {
   $('#ladderPreset').innerHTML = Object.entries(LADDER_PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('');
   $('#ladderPreset').addEventListener('change', e => {
     const p = LADDER_PRESETS[e.target.value];
-    state.calib.preset = e.target.value;
-    if (p.sizes) { state.calib.sizes = p.sizes.slice(); $('#ladderSizes').value = p.sizes.join(', '); }
-    state.calib.assignMode = 'auto'; invalidate('analysis');
+    calibrationEdit(() => {
+      state.calib.preset = e.target.value;
+      if (p.sizes) { state.calib.sizes = p.sizes.slice(); $('#ladderSizes').value = p.sizes.join(', '); }
+      resetCalibrationGuides();
+    });
+    invalidate('analysis');
   });
   $('#ladderSizes').addEventListener('input', debounce(e => {
     const sizes = parseSizes(e.target.value);
-    state.calib.sizes = sizes;
     const match = Object.entries(LADDER_PRESETS).find(([, p]) => p.sizes && p.sizes.join() === sizes.join());
-    state.calib.preset = match ? match[0] : 'custom';
-    state.calib.assignMode = 'auto'; invalidate('analysis');
+    calibrationEdit(() => { state.calib.sizes = sizes; state.calib.preset = match ? match[0] : 'custom'; resetCalibrationGuides(); });
+    invalidate('analysis');
   }, 350));
   $('#ladderSizes').addEventListener('blur', () => invalidate('calib'));
-  $('#ladderOffset').addEventListener('input', e => { state.calib.offset = clamp(+e.target.value || 0, 0, 50); state.calib.assignMode = 'auto'; invalidate('analysis'); });
-  $('#btnAutoAssign').addEventListener('click', () => { state.calib.assignMode = 'auto'; invalidate('analysis'); toast('Ladder sizes assigned from the top band (largest) down.'); });
-  $('#ladderSelect').addEventListener('change', e => setLadder(state.lanes[+e.target.value] || null));
-  $('#ladderBody').addEventListener('change', e => {
-    const sel = e.target.closest('select[data-i]'); const L = ladderLane();
+  $('#ladderOffset').addEventListener('input', e => { calibrationEdit(() => { state.calib.offset = clamp(+e.target.value || 0, 0, 50); resetCalibrationGuides(); }); invalidate('analysis'); });
+  $('#btnAutoAssign').addEventListener('click', () => { calibrationEdit(resetCalibrationGuides); invalidate('analysis'); toast('Manual guides reset. Ladder sizes assigned from the top band (largest) down.'); });
+  $('#ladderSelect').addEventListener('change', e => calibrationEdit(() => setLadder(state.lanes[+e.target.value] || null)));
+  $('#ladderBody').addEventListener('change', e => calibrationEdit(() => {
+    const L = ladderLane(), rfInput = e.target.closest('input[data-guide-rf]'), included = e.target.closest('input[data-guide-include]');
+    if (rfInput && L) {
+      if (rfInput.value.trim() && Number.isFinite(+rfInput.value))
+        moveCalibrationGuide(rfInput.dataset.guideRf, laneTop(L) + +rfInput.value * (laneBot(L) - laneTop(L)));
+      else invalidate('calib');
+      return;
+    }
+    if (included) {
+      const g = beginCalibrationGuideEdit(included.dataset.guideInclude);
+      if (g) { g.confirmed = included.checked; refreshCalibrationGuides(); }
+      return;
+    }
+    const sel = e.target.closest('select[data-i]');
     if (!sel || !L) return;
     const b = L.bands[+sel.dataset.i]; if (!b) return;
     state.calib.assignMode = 'manual';
     b.size = sel.value ? +sel.value : null;
     invalidate('analysis');
-  });
-  $('#fitModel').addEventListener('change', e => { state.calib.model = e.target.value; invalidate('analysis'); });
+  }));
+  $('#fitModel').addEventListener('change', e => calibrationEdit(() => { state.calib.model = e.target.value; refreshCalibrationGuides(); }));
 
   // Export
   initAnnotUI();
@@ -2670,7 +3049,7 @@ const DASH_ICONS = {
 function setTool(t) {
   state.annot.tool = t; state.annot.draft = null;
   $$('#toolSeg button').forEach(b => b.classList.toggle('on', b.dataset.tool === t));
-  gel.canvas.style.cursor = t === 'line' ? 'crosshair' : t === 'text' ? 'text' : 'default';
+  gel.canvas.style.cursor = t === 'line' || t === 'callout' ? 'crosshair' : t === 'text' ? 'text' : 'default';
 }
 function annotSelect(sel) {
   state.annot.sel = sel;
@@ -2691,14 +3070,14 @@ function syncAnnotUI() {
   if (document.activeElement !== $('#captionText')) $('#captionText').value = A.caption;
   $('#captionText').placeholder = captionText() && !A.caption ? captionText() : 'Automatic calibration summary';
   $('#exFormat').value = A.exp.format; $('#exDpi').value = A.exp.dpi; $('#exSmooth').checked = A.exp.smooth;
-  refreshExportUI(); updateUndoButtons();
+  syncFigureUI(); refreshExportUI(); updateUndoButtons();
 }
 
 /** Export resolution choices with their pixel size; oversize choices are disabled. */
 function refreshExportUI() {
   const A = state.annot, X = A.exp, sel = $('#exScale');
   if (!state.img) { sel.innerHTML = '<option>Load an image first</option>'; $('#exInfo').textContent = ''; return; }
-  const W = state.img.width, H = state.img.height + captionHeight();
+  const layout = getFigureLayout({ original: false, exporting: true }), W = layout.width, H = layout.height;
   const fits = s => Math.round(W * s) <= MAX_EXPORT_SIDE && Math.round(H * s) <= MAX_EXPORT_SIDE && W * H * s * s <= MAX_EXPORT_PIXELS;
   if (!fits(X.scale)) X.scale = 1;
   const html = [1, 2, 3, 4].map(s => `<option value="${s}"${fits(s) ? '' : ' disabled'}${X.scale === s ? ' selected' : ''}>${s === 1 ? 'Native' : s + '×'} — ${Math.round(W * s)} × ${Math.round(H * s)} px${fits(s) ? '' : ' (too large)'}</option>`).join('');
@@ -2713,7 +3092,7 @@ function refreshExportUI() {
 function renderInspector() {
   const A = state.annot, sel = A.sel, box = $('#annotInspector');
   if (!box) return;
-  const kindName = !sel ? '' : sel.kind === 'item' ? (sel.item.type === 'line' ? 'Line' : 'Text') : sel.kind === 'band' ? 'Size label' : sel.kind === 'lane' ? 'Lane label' : 'Caption';
+  const kindName = !sel ? '' : sel.kind === 'callout' ? 'Band callout' : sel.kind === 'item' ? (sel.item.type === 'line' ? 'Line' : 'Text') : sel.kind === 'band' ? 'Size label' : sel.kind === 'lane' ? 'Lane label' : 'Caption';
   $('#selKind').textContent = kindName;
   if (!sel) {
     box.innerHTML = '<div class="hint" style="margin-top:0">Click a label, line or text on the gel to edit it. Drag to move. Use the tools above to add lines or text.</div>';
@@ -2721,6 +3100,11 @@ function renderInspector() {
   }
   if (sel.kind === 'caption') {
     box.innerHTML = '<div class="hint" style="margin-top:0">Edit the caption text in <b>Layers</b> below.</div>';
+    return;
+  }
+  if (sel.kind === 'callout') {
+    const c = sel.callout;
+    box.innerHTML = `<div class="prop two"><span>Source Y (px)</span><input type="number" data-prop="y" min="0" max="${state.img.height - 1}" value="${c.y.toFixed(1)}" step="0.1" aria-label="Callout source Y"></div><label class="check"><input type="checkbox" data-prop="visible"${c.visible ? ' checked' : ''}> Visible</label><button class="btn sm danger" data-act="delete">Delete callout</button>`;
     return;
   }
   if (sel.kind === 'item' && sel.item.type === 'line') {
@@ -2758,6 +3142,11 @@ function applyInspector(el) {
   if (!sel || !prop) return;
   beginEdit();
   const v = el.type === 'checkbox' ? el.checked : el.value;
+  if (sel.kind === 'callout') {
+    if (prop === 'visible') sel.callout.visible = !!v;
+    if (prop === 'y' && Number.isFinite(+v)) sel.callout.y = clamp(+v, 0, state.img.height - 1);
+    invalidate('gel'); return;
+  }
   if (sel.kind === 'item') {
     const it = sel.item;
     if (prop === 'size' || prop === 'width') { const n = +v; if (!(n > 0)) return; it[prop] = clamp(n, 0.5, 2000); }
@@ -2775,13 +3164,32 @@ function applyInspector(el) {
 function deleteAnnotSel() {
   const A = state.annot, sel = A.sel; if (!sel || sel.kind === 'caption') return;
   beginEdit();
-  if (sel.kind === 'item') { A.items = A.items.filter(i => i !== sel.item); A.sel = null; }
+  if (sel.kind === 'callout') { A.figure.callouts = A.figure.callouts.filter(c => c !== sel.callout); A.sel = null; }
+  else if (sel.kind === 'item') { A.items = A.items.filter(i => i !== sel.item); A.sel = null; }
   else ensureLab(sel).hidden = true;
   endEdit(); renderInspector(); invalidate('gel');
 }
 
 function initAnnotUI() {
   const A = state.annot, panel = $('#panel5');
+  $('#angleHeaders').addEventListener('change', e => { beginEdit(); A.figure.angleHeaders = e.target.checked; endEdit(); invalidate('gel'); });
+  $('#figureTicks').addEventListener('change', e => { beginEdit(); A.figure.ticks = e.target.checked; endEdit(); invalidate('gel'); });
+  $('#btnAddCutout').addEventListener('click', startCutoutEdit);
+  $('#btnCutoutsDone').addEventListener('click', () => finishCutoutEdit(true));
+  $('#btnCutoutsCancel').addEventListener('click', () => finishCutoutEdit(false));
+  $('#btnDeleteCutout').addEventListener('click', () => { if (!cutoutEdit) return; cutoutEdit.cutouts = cutoutEdit.cutouts.filter(c => c.id !== cutoutEdit.selId); cutoutEdit.selId = null; syncFigureUI(); invalidate('gel'); });
+  $('#btnShowOriginal').addEventListener('click', () => { beginEdit(); A.figure.spliced = !A.figure.spliced; endEdit(); syncFigureUI(); fitView(); });
+  const inline = $('#laneInlineEditor');
+  inline.addEventListener('input', () => { if (!inlineLaneEdit) return; const L = inlineLaneEdit.lane; (L.numLab = L.numLab || {}).text = inline.value; invalidate('gel'); });
+  inline.addEventListener('blur', () => closeLaneEditor(true));
+  inline.addEventListener('keydown', e => {
+    if (!inlineLaneEdit || e.isComposing) return;
+    if (e.key === 'Escape') { e.preventDefault(); closeLaneEditor(false); return; }
+    if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault(); const lanes = visibleHeaderLanes(), i = lanes.indexOf(inlineLaneEdit.lane), d = e.shiftKey ? -1 : 1;
+      closeLaneEditor(true); if (lanes.length) openLaneEditor(lanes[(i + d + lanes.length) % lanes.length]);
+    }
+  });
   $$('#toolSeg button').forEach(b => b.addEventListener('click', () => setTool(b.dataset.tool)));
   $('#btnUndo').addEventListener('click', undo);
   $('#btnRedo').addEventListener('click', redo);
@@ -2838,9 +3246,14 @@ function initAnnotUI() {
   $('#exSmooth').addEventListener('change', e => { A.exp.smooth = e.target.checked; });
 }
 
+/** Calibration settings share the figure undo history, so each change made outside the editor is its own undo step. */
+function calibrationEdit(change) {
+  if (!state.img) return change();
+  endEdit(); beginEdit(); change(); endEdit();
+}
 function setLadder(L) {
   state.lanes.forEach(x => { x.isLadder = x === L; });
-  state.calib.assignMode = 'auto';
+  resetCalibrationGuides();
   invalidate('analysis', 'laneUI');
 }
 function stepLane(d) {
@@ -2904,6 +3317,7 @@ function updateHoverCursor(p) {
   if (!state.img) { c.style.cursor = 'default'; return; }
   if (spaceDown) { c.style.cursor = 'grab'; return; }
   if (state.step === 5) { annotHoverCursor(p); return; }
+  if (state.step === 4 && hitFigureGuide(sourceToFigure(p, getFigureLayout().panels[0]))) { c.style.cursor = 'ns-resize'; return; }
   if (state.step === 2) { const h = hitLanes(p); c.style.cursor = h ? CURSORS[h.type] : 'default'; return; }
   if (state.step >= 3 && hitBand(p)) { c.style.cursor = 'ns-resize'; return; }
   const L = hitLaneBody(p);
@@ -2928,15 +3342,44 @@ function snap45(x0, y0, x, y) {
 function annotPointerDown(e, p, base) {
   const A = state.annot, c = gel.canvas;
   if (e.button !== 0) return false;
-  if (A.tool === 'line') {
+  const layout = getFigureLayout(), q = figureToSource(p, layout);
+  if (cutoutEdit) {
+    const panel = layout.panels[0], raw = { x: p.x - panel.dx, y: p.y - panel.dy }, h = hitCutout(raw);
+    const draftBefore = JSON.parse(JSON.stringify(cutoutEdit));
+    if (h) {
+      cutoutEdit.selId = h.rect.id;
+      drag = { ...base, type: 'cutoutResize', rect: h.rect, edgeX: h.edgeX, edgeY: h.edgeY, orig: { ...h.rect }, cropY: cutoutEdit.cropY.slice(), draftBefore };
+    } else if (q) {
+      const first = !cutoutEdit.cutouts.length, r = { id: `cut-${cutoutEdit.nextId++}`, x: q.x, width: 1 };
+      cutoutEdit.cutouts.push(r); cutoutEdit.selId = r.id;
+      if (first) cutoutEdit.cropY = [q.y, Math.min(state.img.height, q.y + 1)];
+      drag = { ...base, p0: q, type: 'cutoutDraw', rect: r, first, draftBefore };
+    }
+    syncFigureUI(); invalidate('gel'); return true;
+  }
+  const guide = A.tool === 'select' && !annotHit(p, 0, layout) && hitFigureGuide(p, layout);
+  if (guide) { beginEdit(); drag = { ...base, type: 'guide', guideId: guide.id, origY: guide.y }; return true; }
+  if (A.tool === 'callout') {
+    if (!q) return true;
+    const band = hitBand(q), y = band ? laneTop(band.lane) + band.band.rf * (laneBot(band.lane) - laneTop(band.lane)) : q.y;
+    const nearby = A.figure.callouts.find(c => Math.abs(c.y - y) <= 6 / state.view.scale);
     beginEdit();
-    A.draft = { type: 'line', x1: p.x, y1: p.y, x2: p.x, y2: p.y, ...A.lineStyle };
-    drag = { ...base, type: 'annDraw' };
+    const callout = nearby || { id: A.nextId++, y, visible: true };
+    if (nearby) callout.visible = !callout.visible; else A.figure.callouts.push(callout);
+    drag = { ...base, type: 'annCallout', callout, origY: callout.y };
+    annotSelect({ kind: 'callout', callout }); return true;
+  }
+  if (A.tool === 'line') {
+    if (!q) return true;
+    beginEdit();
+    A.draft = { type: 'line', x1: q.x, y1: q.y, x2: q.x, y2: q.y, ...A.lineStyle };
+    drag = { ...base, type: 'annDraw', panelId: q.panelId };
     return true;
   }
   if (A.tool === 'text') {
+    if (!q) return true;
     beginEdit();
-    const it = { id: A.nextId++, type: 'text', x: p.x, y: p.y, text: 'Label', ...A.textStyle };
+    const it = { id: A.nextId++, type: 'text', x: q.x, y: q.y, text: 'Label', ...A.textStyle };
     A.items.push(it); endEdit();
     setTool('select'); annotSelect({ kind: 'item', item: it });
     drag = { ...base, type: 'annText' };                              // focus the text box on pointerup
@@ -2946,6 +3389,7 @@ function annotPointerDown(e, p, base) {
   if (!h) { annotSelect(null); drag = { ...base, type: 'pan' }; return true; }
   if (h.kind === 'caption') { annotSelect(h); $('#captionText').focus(); return true; }
   beginEdit();
+  if (h.kind === 'callout') { annotSelect(h); drag = { ...base, type: 'annCallout', callout: h.callout, origY: h.callout.y }; return true; }
   if (h.kind === 'end') { drag = { ...base, type: 'annEnd', item: h.item, end: h.end, orig: { ...h.item } }; c.style.cursor = 'grabbing'; return true; }
   annotSelect(h);
   let orig;
@@ -2957,11 +3401,28 @@ function annotPointerDown(e, p, base) {
 }
 function annotPointerMove(e, p, dx, dy) {
   const A = state.annot, d = drag;
-  if (d.type === 'annDraw') {
-    const D = A.draft; [D.x2, D.y2] = e.shiftKey ? snap45(D.x1, D.y1, p.x, p.y) : [p.x, p.y];
+  if (d.type === 'cutoutDraw') {
+    const panel = getFigureLayout().panels[0], x = clamp(p.x - panel.dx, 0, state.img.width), y = clamp(p.y - panel.dy, 0, state.img.height);
+    d.rect.x = Math.min(d.p0.x, x); d.rect.width = Math.abs(x - d.p0.x);
+    if (d.first) cutoutEdit.cropY = [Math.min(d.p0.y, y), Math.max(d.p0.y, y)];
+  } else if (d.type === 'cutoutResize') {
+    const r = d.rect, o = d.orig, W = state.img.width, H = state.img.height;
+    if (d.edgeX === 'left') { r.x = clamp(o.x + dx, 0, o.x + o.width - 2); r.width = o.x + o.width - r.x; }
+    else if (d.edgeX === 'right') r.width = clamp(o.width + dx, 2, W - o.x);
+    else if (!d.edgeY) r.x = clamp(o.x + dx, 0, W - o.width);
+    if (d.edgeY === 'top') cutoutEdit.cropY[0] = clamp(d.cropY[0] + dy, 0, d.cropY[1] - 2);
+    if (d.edgeY === 'bottom') cutoutEdit.cropY[1] = clamp(d.cropY[1] + dy, d.cropY[0] + 2, H);
+  } else if (d.type === 'guide') {
+    if (d.moved) moveCalibrationGuide(d.guideId, d.origY + dy);
+  } else if (d.type === 'annCallout') {
+    if (d.moved) d.callout.y = clamp(d.origY + dy, 0, state.img.height - 1);
+  } else if (d.type === 'annDraw') {
+    const panel = getFigureLayout().panels.find(p => p.id === d.panelId), q = { x: p.x - panel.dx + panel.sx, y: p.y - panel.dy + panel.sy };
+    const D = A.draft; [D.x2, D.y2] = e.shiftKey ? snap45(D.x1, D.y1, q.x, q.y) : [q.x, q.y];
   } else if (d.type === 'annEnd') {
     const it = d.item, o = d.orig, fx = d.end === 1 ? o.x2 : o.x1, fy = d.end === 1 ? o.y2 : o.y1;
-    const [x, y] = e.shiftKey ? snap45(fx, fy, p.x, p.y) : [p.x, p.y];
+    const x0 = (d.end === 1 ? o.x1 : o.x2) + dx, y0 = (d.end === 1 ? o.y1 : o.y2) + dy;
+    const [x, y] = e.shiftKey ? snap45(fx, fy, x0, y0) : [x0, y0];
     if (d.end === 1) { it.x1 = x; it.y1 = y; } else { it.x2 = x; it.y2 = y; }
   } else if (d.type === 'annMove') {
     if (e.shiftKey) { if (Math.abs(dx) > Math.abs(dy)) dy = 0; else dx = 0; }   // move along one axis
@@ -2975,6 +3436,11 @@ function annotPointerMove(e, p, dx, dy) {
 }
 function annotPointerUp(d) {
   const A = state.annot;
+  if (d.type === 'cutoutDraw' || d.type === 'cutoutResize') {
+    if (d.type === 'cutoutDraw' && (d.rect.width * state.view.scale < 4 || (cutoutEdit.cropY[1] - cutoutEdit.cropY[0]) * state.view.scale < 4)) cutoutEdit = d.draftBefore;
+    syncFigureUI(); invalidate('gel'); return true;
+  }
+  if (d.type === 'guide' || d.type === 'annCallout') { endEdit(); renderInspector(); invalidate('gel'); return true; }
   if (d.type === 'annDraw') {
     const D = A.draft; A.draft = null;
     if (Math.hypot(D.x2 - D.x1, D.y2 - D.y1) * state.view.scale >= 4) {
@@ -2997,8 +3463,11 @@ function annotPointerUp(d) {
 }
 function annotHoverCursor(p) {
   const A = state.annot, c = gel.canvas;
-  if (A.tool !== 'select') { c.style.cursor = A.tool === 'line' ? 'crosshair' : 'text'; return; }
-  const h = annotHit(p);
+  const layout = getFigureLayout();
+  if (cutoutEdit) { const panel = layout.panels[0], h = hitCutout({ x: p.x - panel.dx, y: p.y - panel.dy }); c.style.cursor = h ? h.edgeY ? 'ns-resize' : h.edgeX ? 'ew-resize' : 'move' : 'crosshair'; return; }
+  if (A.tool === 'select' && !annotHit(p, 0, layout) && hitFigureGuide(p, layout)) { c.style.cursor = 'ns-resize'; return; }
+  if (A.tool !== 'select') { c.style.cursor = A.tool === 'text' ? 'text' : 'crosshair'; return; }
+  const h = annotHit(p, undefined, layout);
   c.style.cursor = !h ? 'default' : h.kind === 'end' ? 'pointer' : h.kind === 'caption' ? 'text' : 'move';
 }
 /** Keyboard shortcuts while annotating. Returns true when handled. */
@@ -3007,6 +3476,12 @@ function annotKey(e) {
   if (mod && k === 'z') { e.shiftKey ? redo() : undo(); e.preventDefault(); return true; }
   if (mod && k === 'y') { redo(); e.preventDefault(); return true; }
   if (mod) return false;
+  if (cutoutEdit) {
+    if (e.key === 'Escape') { finishCutoutEdit(false); return true; }
+    if (e.key === 'Enter') { finishCutoutEdit(true); return true; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { $('#btnDeleteCutout').click(); e.preventDefault(); return true; }
+    return false;
+  }
   if (k === 'v') { setTool('select'); return true; }
   if (k === 'l') { setTool('line'); return true; }
   if (k === 't') { setTool('text'); return true; }
@@ -3017,7 +3492,8 @@ function annotKey(e) {
     const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0, dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
     beginEdit();
     const s = A.sel;
-    if (s.kind === 'item' && s.item.type === 'line') { s.item.x1 += dx; s.item.x2 += dx; s.item.y1 += dy; s.item.y2 += dy; }
+    if (s.kind === 'callout') s.callout.y = clamp(s.callout.y + dy, 0, state.img.height - 1);
+    else if (s.kind === 'item' && s.item.type === 'line') { s.item.x1 += dx; s.item.x2 += dx; s.item.y1 += dy; s.item.y2 += dy; }
     else if (s.kind === 'item') { s.item.x += dx; s.item.y += dy; }
     else { const lab = ensureLab(s); lab.dx = (lab.dx || 0) + dx; lab.dy = (lab.dy || 0) + dy; }
     clearTimeout(annotKey.t); annotKey.t = setTimeout(endEdit, 600);   // group a burst of nudges into one undo step
@@ -3032,6 +3508,7 @@ function initPointer() {
   c.addEventListener('wheel', e => {
     if (!state.img) return;
     e.preventDefault();
+    if (drag) return;
     const p = evPt(e, c), k = e.deltaMode === 1 ? 0.05 : 0.0015;
     zoomAt(p.x, p.y, Math.exp(-e.deltaY * k));
   }, { passive: false });
@@ -3041,10 +3518,14 @@ function initPointer() {
     // Release focus from sidebar inputs so keyboard shortcuts act on the canvas.
     if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
     c.setPointerCapture(e.pointerId);
-    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    const sp = evPt(e, c), fp = toImage(sp.x, sp.y), p = state.step === 4 ? figureToSource(fp) || { x: -1, y: -1 } : fp;
     const base = { sx: sp.x, sy: sp.y, p0: p, moved: false, ox: state.view.ox, oy: state.view.oy };
     if (e.button === 1 || spaceDown || (e.button === 0 && e.altKey)) { drag = { ...base, type: 'pan' }; c.style.cursor = 'grabbing'; return; }
     if (state.step === 5) { annotPointerDown(e, p, base); return; }
+    if (state.step === 4 && e.button === 0) {
+      const guide = !hitBand(p) && hitFigureGuide(fp);           // bands keep priority; guides also have handles outside the lane
+      if (guide) { beginEdit(); drag = { ...base, type: 'guide', guideId: guide.id, origY: guide.y }; return; }
+    }
     if (e.button === 2) {
       if (state.step >= 3) {
         const hb = hitBand(p);
@@ -3076,13 +3557,13 @@ function initPointer() {
   });
 
   c.addEventListener('pointermove', e => {
-    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
-    updateStatus(p);
+    const sp = evPt(e, c), fp = toImage(sp.x, sp.y), p = state.step === 4 ? figureToSource(fp) || { x: -1, y: -1 } : fp;
+    updateStatus(state.step === 5 ? figureToSource(fp) || { x: -1, y: -1 } : p);
     if (!drag) { updateHoverCursor(p); return; }
     const dxs = sp.x - drag.sx, dys = sp.y - drag.sy;
     if (Math.hypot(dxs, dys) > 3) drag.moved = true;
     const dx = dxs / state.view.scale, dy = dys / state.view.scale, L = drag.lane, o = drag.orig;
-    if (state.step === 5 && annotPointerMove(e, p, dx, dy)) return;
+    if ((state.step === 5 || drag.type === 'guide') && annotPointerMove(e, fp, dx, dy)) return;
     switch (drag.type) {
       case 'laneClick': if (!drag.moved) break; drag.type = 'pan'; c.style.cursor = 'grabbing'; /* falls through */
       case 'pan': state.view.ox = drag.ox + dxs; state.view.oy = drag.oy + dys; invalidate('gel'); break;
@@ -3112,7 +3593,15 @@ function initPointer() {
   const end = e => {
     if (!drag) return;
     const d = drag; drag = null;
-    const sp = evPt(e, c), p = toImage(sp.x, sp.y);
+    const sp = evPt(e, c), fp = toImage(sp.x, sp.y), p = state.step === 4 ? figureToSource(fp) || { x: -1, y: -1 } : fp;
+    if (e.type === 'pointercancel' && (state.step === 5 || d.type === 'guide')) {
+      state.annot.draft = null;
+      if (d.draftBefore) cutoutEdit = d.draftBefore;
+      else if (pendingSnap != null) { const snap = pendingSnap; pendingSnap = null; annotRestore(snap); }
+      syncFigureUI(); invalidate('gel'); return;
+    }
+    if (d.type === 'guide') { annotPointerUp(d); updateHoverCursor(p); return; }
+    if (state.step === 5 && isLaneDoubleTap(e, d, p)) { annotPointerUp(d); openLaneEditor(lastLaneTap.lane); lastLaneTap = null; return; }
     if (state.step === 5) { annotPointerUp(d); annotHoverCursor(p); return; }
     if (d.type === 'laneClick' && !d.moved) {
       if (state.step === 3 && d.lane === state.sel) {
@@ -3125,11 +3614,19 @@ function initPointer() {
     }
     updateHoverCursor(p);
   };
+  // Touch browsers (notably iOS Safari) do not reliably fire dblclick, so detect a double tap on a header.
+  const isLaneDoubleTap = (e, d, p) => {
+    if (e.pointerType !== 'touch' || d.moved || cutoutEdit) return false;
+    const h = annotHit(p), prev = lastLaneTap, now = performance.now();
+    lastLaneTap = h?.kind === 'lane' ? { lane: h.lane, time: now } : null;
+    return !!(lastLaneTap && prev && prev.lane === lastLaneTap.lane && now - prev.time < 400);
+  };
   c.addEventListener('pointerup', end);
   c.addEventListener('pointercancel', end);
   c.addEventListener('dblclick', e => {
-    if (state.step !== 5) return;
+    if (state.step !== 5 || cutoutEdit) return;
     const sp = evPt(e, c), h = annotHit(toImage(sp.x, sp.y));
+    if (h?.kind === 'lane') { openLaneEditor(h.lane); return; }
     if (h && h.kind !== 'end' && h.kind !== 'caption') { annotSelect(h); const inp = $('#insText'); if (inp) { inp.focus(); inp.select(); } }
   });
   c.addEventListener('pointerleave', () => { if (!drag) { ['#stX', '#stY', '#stI'].forEach(s => $(s).textContent = '—'); } });
@@ -3257,8 +3754,10 @@ async function exportImage() {
   if (!state.img) return toast('Load an image first.');
   if (exporting) return;
   flush();
-  const X = state.annot.exp, s = X.scale, W = state.img.width, H = state.img.height, capH = captionHeight();
-  const cw = Math.round(W * s), ch = Math.round((H + capH) * s);
+  if (cutoutEdit) return toast('Choose Done or Cancel for the cutouts before exporting.');
+  closeLaneEditor(true);
+  const X = state.annot.exp, s = X.scale, layout = getFigureLayout({ original: false, exporting: true });
+  const cw = Math.round(layout.width * s), ch = Math.round(layout.height * s);
   if (cw > MAX_EXPORT_SIDE || ch > MAX_EXPORT_SIDE || cw * ch > MAX_EXPORT_PIXELS) return toast('That resolution is too large for the browser. Choose a lower one.', 'error');
   exporting = true;
   const ext = X.format === 'jpeg' ? 'jpg' : X.format === 'tiff' ? 'tif' : 'png';
@@ -3268,9 +3767,7 @@ async function exportImage() {
   const ctx = c.getContext('2d');
   try {
     ctx.imageSmoothingEnabled = s === 1 || X.smooth; ctx.imageSmoothingQuality = 'high';
-    ctx.drawImage(state.dispCanvas, 0, 0, W * s, H * s);
-    ctx.imageSmoothingEnabled = true;
-    drawComposition(ctx, s, 0, 0);
+    drawComposition(ctx, s, 0, 0, { layout });
     let blob;
     if (X.format === 'tiff') blob = encodeTiff(ctx.getImageData(0, 0, cw, ch).data, cw, ch, X.dpi);
     else {
@@ -3296,7 +3793,7 @@ function exportCSV() {
     const total = L.bands.reduce((s, b) => s + b.area, 0) || 1;
     L.bands.forEach((b, bi) => rows.push([
       li + 1, (L.numLab && L.numLab.text) || '', L.isLadder ? 'Ladder' : 'Sample', bi + 1, b.pos.toFixed(2), b.rf.toFixed(5),
-      b.est > 0 ? Math.round(b.est) : '', L.isLadder && b.size > 0 ? b.size : '',
+      b.est > 0 ? Math.round(b.est) : '', assignedLadderSize(L, b) > 0 ? assignedLadderSize(L, b) : '',
       b.est > 0 ? (b.extrap ? 'yes' : 'no') : '', b.height.toFixed(2), b.area.toFixed(2), (100 * b.area / total).toFixed(2), b.manual ? 'yes' : 'no',
     ]));
   });
