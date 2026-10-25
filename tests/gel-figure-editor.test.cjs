@@ -154,29 +154,31 @@ test('calibration undo restores the preset, sizes, offset, model and ladder iden
   } finally { await page.close(); }
 });
 
-test('dragging a ladder guide uses image coordinates at the current zoom', async () => {
+test('standard positions are edited from the calibration sidebar without moving detected bands', async () => {
   const page = await openEditor();
   try {
-    for (const step of [4, 5]) {
-      const target = await page.evaluate(step => {
-        loadDemo(); goStep(step); fitView(); flush();
-        const guide = getCalibrationGuides()[3], L = ladderLane();
-        const layout = getFigureLayout(), panel = layout.panels[0];
-        // Grab the handle just outside the lane edge; the band itself keeps priority in step 4.
-        const point = sourceToFigure({ x: laneCenterAt(L, guide.y) - L.width / 2 - GUIDE_HANDLE_PX / state.view.scale, y: guide.y }, panel);
-        const p = toScreen(point.x, point.y), r = gel.canvas.getBoundingClientRect();
-        return { id: guide.id, y: guide.y, rf: L.bands[3].rf, scale: state.view.scale, x: r.left + p.x, screenY: r.top + p.y };
-      }, step);
-      await page.mouse.move(target.x, target.screenY);
-      await page.mouse.down();
-      await page.mouse.move(target.x + 12, target.screenY + 9, { steps: 5 });
-      await page.mouse.up();
-      const moved = await page.evaluate(id => ({ ...getCalibrationGuides().find(g => g.id === id), manual: !!state.calib.guides, rf: ladderLane().bands[3].rf }), target.id);
-      assert.ok(Math.abs(moved.y - (target.y + 9 / target.scale)) < 1, `step ${step}: expected y ${target.y + 9 / target.scale}; got ${moved.y}`);
-      assert.equal(moved.id, target.id);
-      assert.equal(moved.manual, true);
-      assert.equal(moved.rf, target.rf, `step ${step}: the ladder band must not move with its guide`);
-    }
+    await page.evaluate(() => { goStep(4); zoomTo(3); flush(); });
+    const before = await page.evaluate(() => ({ bands: ladderLane().bands.map(b => b.rf), manual: !!state.calib.guides }));
+    assert.equal(before.manual, false);
+    await page.locator('#btnEditStandardPositions').click();
+    const target = await page.evaluate(() => {
+      const L = ladderLane(), g = getCalibrationGuides()[3], rf = (g.y - laneTop(L)) / (laneBot(L) - laneTop(L));
+      return { id: g.id, size: g.size, rf: +(rf + 0.015).toFixed(3), points: state.calib.points.length };
+    });
+    const field = page.locator('input[data-guide-rf]').nth(3);
+    await field.fill(String(target.rf));
+    await field.press('Tab');
+    const moved = await page.evaluate(id => {
+      const L = ladderLane(), g = getCalibrationGuides().find(g => g.id === id);
+      return { id: g.id, size: g.size, rf: (g.y - laneTop(L)) / (laneBot(L) - laneTop(L)), manual: !!state.calib.guides, bands: L.bands.map(b => b.rf) };
+    }, target.id);
+    assert.equal(moved.id, target.id);
+    assert.equal(moved.size, target.size);
+    assert.ok(Math.abs(moved.rf - target.rf) < 1e-9);
+    assert.equal(moved.manual, true);
+    assert.deepEqual(moved.bands, before.bands, 'editing a standard position must not drag a detected band');
+    await page.locator('input[data-guide-include]').nth(3).uncheck();
+    assert.equal(await page.evaluate(() => state.calib.points.length), target.points - 1, 'the Use checkbox excludes this standard from the fit');
     assert.deepEqual(page.errors, []);
   } finally { await page.close(); }
 });
@@ -413,8 +415,8 @@ test('exports use composed dimensions and preserve PNG/JPEG/TIFF format metadata
       else if (file.format === 'jpeg') assert.deepEqual(file.signature.slice(0, 2), [255, 216]);
       else assert.deepEqual(file.signature, [73, 73, 42, 0]);
     }
-    assert.ok(result.editingGreenPixels > 0, 'editable green guides are visible on the grayscale demo');
-    assert.equal(result.exportedGreenPixels, 0, 'export omits the editing guides');
+    assert.equal(result.editingGreenPixels, 0, 'calibration guide overlays are absent from the figure editor');
+    assert.equal(result.exportedGreenPixels, 0, 'calibration guide overlays are absent from exports');
     assert.deepEqual(page.errors, []);
   } finally { await page.close(); }
 });
@@ -474,7 +476,7 @@ test('calibration changes from the sidebar are separate undo steps and never und
   } finally { await page.close(); }
 });
 
-test('step 4 drags ladder bands, keeps analysis overlays, and warns when bands change under manual guides', async () => {
+test('step 4 drags ladder bands, keeps analysis overlays, and warns when bands change after manual standard edits', async () => {
   const page = await openEditor();
   try {
     await page.evaluate(() => { goStep(4); fitView(); flush(); });
@@ -497,7 +499,7 @@ test('step 4 drags ladder bands, keeps analysis overlays, and warns when bands c
     assert.ok(result.step4 > 0, 'step 4 draws the interactive overlays');
     assert.equal(result.step5, 0);
     assert.doesNotMatch(result.before, /Ladder bands changed/);
-    assert.match(result.after, /Ladder bands changed after the guides were placed by hand/);
+    assert.match(result.after, /Ladder bands changed after the standard positions were edited/);
     assert.deepEqual(page.errors, []);
   } finally { await page.close(); }
 });
