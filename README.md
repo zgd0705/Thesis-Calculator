@@ -31,6 +31,14 @@ The older `/gel-analyzer/` route redirects to `gel-analyzer.html`.
 
 Image display adjustments, lane analysis, calibration, and figure composition run in the browser. Cutouts change the figure composition; they do not remove image pixels or exclude lanes from the analysis or results CSV.
 
+## Upload borders and image cropping
+
+Uploaded images automatically remove clear black borders before analysis. Detection keeps the full image when the gel boundary is uncertain. The demo loads directly, and the decoded original upload is retained in memory.
+
+In step 1, **Crop / restore original** opens a separate, optional crop tool. Drag an edge or corner to resize, drag inside to move, choose **Draw crop** to select new bounds, or enter exact pixel coordinates. **Auto-trim black borders** updates the selection; **Use full image** selects the retained original. These controls change the preview until **Apply crop & analyze** is chosen. **Cancel** or `Escape` preserves the current image and analysis.
+
+Applying a manual crop or restoring the full image starts fresh analysis, re-detects lanes, and clears band edits, manual standard positions and assignments, and figure annotations. Ladder preset, known sizes, offset, and fit-model settings are retained. This image crop changes the area analyzed. The lane cutouts in step 5 only change figure presentation. A new upload or demo replaces the retained original.
+
 ## Figure editing
 
 ### Lane headers
@@ -39,13 +47,13 @@ Double-click (or double-tap on a touch screen) a lane header to rename it inline
 
 Enable **Angle long headers** to rotate custom names longer than one trimmed character by −45°. Automatic lane numbers and single-character labels stay horizontal. Header changes use the same lane-label data as the existing annotation inspector and CSV export.
 
-### Ladder guides and external ticks
+### Standard positions and external ticks
 
-The ladder lane has one green horizontal editing guide for each known ladder size. Drag a guide vertically to align it with a physical band. The corresponding external tick and size label move with it. In step 4 a click on a ladder band still moves the band, so grab a guide by its round handle just outside the lane edge (or type its Rf in the ladder table). If ladder bands are added, deleted or moved after guides were placed by hand, the calibration panel warns that the guides still define the fit; **Auto-assign** rebuilds them from the bands. **External bp ticks** is on by default and adds a **bp** heading in the left margin.
+Use **Edit standard positions** in step 4 to edit each known ladder size's Rf in the calibration table. The **Use** checkbox controls whether a position contributes to the fit. External ticks and size labels update with these positions. **Auto-assign** returns to assignments derived from detected bands. If bands change after manual standard edits, the calibration panel warns that the manual positions still define the fit. **External bp ticks** is on by default and adds a **bp** heading in the left margin.
 
-An unplaced guide is provisional and does not enter the calibration fit. Placing a guide creates or updates a manual ladder-band calibration point; review the resulting calibration before using estimated sizes. A manually placed guide assigns its known size to a detected band only when they are within three source-image pixels. Otherwise, that band's assigned ladder size stays blank in labels, results, and CSV. Green guides are editing aids and are omitted from exported figures. External ticks remain available in the figure.
+Unconfirmed standard positions do not enter the calibration fit. A manual position assigns its known size to a detected band only when they are within three working-image pixels. Otherwise, that band's assigned ladder size stays blank in labels, results, and CSV. Review calibration before using estimated sizes. Green calibration guides and their drag handles have been removed from the editor and exports; detected and manually edited band lines retain their existing behavior.
 
-Recheck calibration after changing image orientation. Fine rotation clears manually placed ladder guides and undo/redo history because the physical pixels have shifted. A 90° rotation or horizontal flip re-detects lanes and resets figure annotations.
+Recheck calibration after changing image orientation. Fine rotation clears manual standard positions and undo/redo history because the physical pixels have shifted. A 90° rotation or horizontal flip re-detects lanes and resets figure annotations.
 
 ### Lane cutouts
 
@@ -59,11 +67,11 @@ Choose the callout tool and click at a target band's height to create a dashed h
 
 ### Coordinates, history, and export
 
-Figure geometry stays in the analyzer's working-image pixel coordinate system, after the existing import size limits and orientation processing; these coordinates may differ from the original upload's full-resolution pixels, and the existing downscale behavior is unchanged. Zoom, pan, responsive resizing, and cutout placement are view transforms. The image and annotations use the same transforms for pointer input, preview, and export.
+Figure geometry stays in the analyzer's working-image pixel coordinate system, after cropping, the existing import size limits, and orientation processing. Coordinates start at the cropped image's top-left corner and may differ from the original upload's pixels; the existing downscale behavior is unchanged. Zoom, pan, responsive resizing, and cutout placement are view transforms. The image and annotations use the same transforms for pointer input, preview, and export.
 
 Use the existing **Undo** and **Redo** controls for committed figure edits. `Ctrl+Z` / `Cmd+Z` undoes an edit; `Ctrl+Shift+Z` / `Cmd+Shift+Z` redoes it. Each drag is one edit. Calibration settings changed in step 4 (ladder preset, sizes, offset, assignments, fit model, ladder lane) are recorded as their own undo steps, so undoing a figure edit never reverts a later calibration change. Zoom is kept when moving between steps 4 and 5 and when margins change; press **Fit** or `F` to refit.
 
-Image exports use the selected PNG, TIFF, or JPEG format, resolution, and DPI metadata. The figure includes the visible headers, external ladder scale, cutout borders, and callouts, with white outer margins and black tick/callout text. Panels retain the image's displayed colors. Editing handles and green guides are excluded. Results CSV still includes every analyzed lane; profile CSV still exports the selected lane's profile.
+Image exports use the selected PNG, TIFF, or JPEG format, resolution, and DPI metadata. The figure includes the visible headers, external ladder scale, cutout borders, and callouts, with white outer margins and black tick/callout text. Panels retain the image's displayed colors. Editing handles are excluded. Results CSV still includes every analyzed lane; profile CSV still exports the selected lane's profile.
 
 ## Implementation
 
@@ -78,9 +86,9 @@ The optional development tests require Node.js, Git history containing baseline 
 ```sh
 npm install --no-save --package-lock=false playwright
 npx playwright install chromium
-node --test tests/gel-figure-editor.test.cjs
+node --test tests/*.test.cjs
 ```
 
 The runner uses an installed Chrome when available, then falls back to Playwright's Chromium. Set `CHROME_PATH` to use a specific browser executable. If Playwright is installed outside the repository, set `NODE_PATH` to the directory containing that package.
 
-All 20 browser regression tests passed in Chrome. They compare the demo's original analysis and four calibration models, exercise the new editing workflows, check export dimensions and format metadata, and cover desktop and mobile touch emulation. The mobile checks use a 390 × 844 browser viewport at device scale factor 3; they are not a native-device test.
+All 27 browser regression tests passed in Chrome. They compare the demo's original analysis and four calibration models, exercise figure and crop editing, verify automatic PNG/TIFF border trimming and sample preservation, check export dimensions and format metadata, and cover desktop and mobile touch emulation. The mobile checks use a 390 × 844 browser viewport at device scale factor 3; they are not a native-device test.
