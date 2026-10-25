@@ -537,7 +537,7 @@ table.results .extrap{color:var(--warn)}
           <button class="btn sm" id="btnCutoutsCancel" hidden>Cancel</button>
           <button class="btn sm danger" id="btnDeleteCutout" hidden>Delete cutout</button>
         </div>
-        <div class="hint" id="cutoutHint">Double-click a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.</div>
+        <div class="hint" id="cutoutHint">Double-click (or double-tap) a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.</div>
       </div>
 
       <div class="group">
@@ -782,6 +782,7 @@ const state = {
     preset: 'generuler-1kb', sizes: LADDER_PRESETS['generuler-1kb'].sizes.slice(), offset: 0,
     model: 'linear', assignMode: 'auto', fit: null, points: [], warning: '',
     guides: null, guideLaneId: null, // manual standard positions in working-image pixels
+    guideBands: null,                // ladder band positions when the guides were taken over
   },
   refMax: 1,            // strongest corrected signal on the gel (threshold reference)
   hover: null,          // { lane, idx } from electropherogram hover
@@ -1395,9 +1396,26 @@ const gel = { canvas: $('#gelCanvas'), ctx: $('#gelCanvas').getContext('2d'), w:
 const toScreen = (x, y) => ({ x: state.view.ox + x * state.view.scale, y: state.view.oy + y * state.view.scale });
 const toImage = (sx, sy) => ({ x: (sx - state.view.ox) / state.view.scale, y: (sy - state.view.oy) / state.view.scale });
 
+/**
+ * Screen anchor for the gel image. When figure margins grow or shrink (headers, ticks,
+ * callouts), the view shifts so the image stays put; a different panel arrangement refits.
+ */
+let viewAnchor = null;
+function figureAnchor(layout) {
+  if (!layout) return { key: 'gel', dx: 0, dy: 0 };
+  return { key: layout.panels.map(p => [p.sx, p.sy, p.sw, p.sh].join()).join('|'), dx: layout.panels[0].dx, dy: layout.panels[0].dy };
+}
+function keepViewAnchored() {
+  const a = figureAnchor(state.step >= 4 ? getFigureLayout() : null), v = state.view;
+  if (!viewAnchor || viewAnchor.key !== a.key) { fitView(); return; }
+  v.ox += (viewAnchor.dx - a.dx) * v.scale; v.oy += (viewAnchor.dy - a.dy) * v.scale;
+  viewAnchor = a;
+}
+
 function fitView() {
   if (!state.img) return;
   const layout = state.step >= 4 ? getFigureLayout() : null;
+  viewAnchor = figureAnchor(layout);
   const pad = 28, W = layout ? layout.width : state.img.width, H = layout ? layout.height : state.img.height;
   const s = Math.min((gel.w - 2 * pad) / W, (gel.h - 2 * pad) / H);
   state.view.scale = s > 0 ? s : 1;
@@ -1766,6 +1784,8 @@ function calibrate() {
   if (guides) {
     const outside = guides.filter(g => g.y < laneTop(L) || g.y > laneBot(L)).length;
     if (outside) warn.push(`${outside} standard guide(s) lie outside the current well/front interval. Their image positions are preserved; reposition them if needed.`);
+    if (C.guideBands != null && C.guideBands !== ladderBandSignature(L))
+      warn.push('Ladder bands changed after the guides were placed by hand; the manual guides still define the calibration. Use Auto-assign to rebuild them from the bands.');
   }
   if (!guides && C.assignMode === 'auto' && L.bands.length !== sizes.length)
     warn.push(`Ladder lane has ${L.bands.length} bands, but ${sizes.length} sizes are expected. Check the assignments below, add or delete bands in step 3, or skip top sizes.`);
@@ -1788,9 +1808,13 @@ function getCalibrationGuides() {
   if (C.guides && C.guideLaneId === L.id) return C.guides;
   const sizes = C.sizes.slice(clamp(C.offset | 0, 0, C.sizes.length));
   const yT = laneTop(L), span = Math.max(1, laneBot(L) - yT), bounds = calibrationGuideBounds(L);
+  const seen = new Map(), used = new Set();
   return sizes.map((size, i) => {
-    const b = C.assignMode === 'auto' ? L.bands[i] : L.bands.find(b => b.size === size);
-    return { id: `${L.id}:${size}`, size, laneId: L.id, confirmed: !!b,
+    // Repeated sizes get distinct ids and distinct bands, so each guide moves independently.
+    const n = (seen.get(size) || 0) + 1; seen.set(size, n);
+    const b = C.assignMode === 'auto' ? L.bands[i] : L.bands.find(b => b.size === size && !used.has(b));
+    if (b) used.add(b);
+    return { id: n > 1 ? `${L.id}:${size}:${n}` : `${L.id}:${size}`, size, laneId: L.id, confirmed: !!b,
       y: clamp(yT + (b ? b.rf : (i + 1) / (sizes.length + 1)) * span, bounds.min, bounds.max) };
   });
 }
@@ -1805,7 +1829,7 @@ function beginCalibrationGuideEdit(id) {
   const C = state.calib, L = ladderLane(), guides = getCalibrationGuides();
   if (!L || !guides.some(g => g.id === id)) return null;
   if (!C.guides || C.guideLaneId !== L.id) {
-    C.guides = guides.map(g => ({ ...g })); C.guideLaneId = L.id;
+    C.guides = guides.map(g => ({ ...g })); C.guideLaneId = L.id; C.guideBands = ladderBandSignature(L);
   }
   return C.guides.find(g => g.id === id) || null;
 }
@@ -1827,8 +1851,9 @@ function moveCalibrationGuide(id, y) {
 
 function resetCalibrationGuides() {
   const C = state.calib;
-  C.guides = null; C.guideLaneId = null; C.assignMode = 'auto';
+  C.guides = null; C.guideLaneId = null; C.guideBands = null; C.assignMode = 'auto';
 }
+const ladderBandSignature = L => L.bands.map(b => b.rf.toFixed(4)).join();
 
 /* ==========================================================================
    9. RENDERING
@@ -1964,10 +1989,14 @@ function drawGel() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!state.img) return;
+  keepViewAnchored();
   const v = state.view, { width: W, height: H } = state.img;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   if (state.step >= 4) {
-    drawComposition(ctx, v.scale, v.ox, v.oy, { editing: true });
+    const overlay = state.step === 4 ? p => drawOverlays(ctx, (x, y) => toScreen(p.dx + x - p.sx, p.dy + y - p.sy), {
+      u: 1, interactive: true, step: 4, guides: true, lanes: true, nums: false, bands: true, labels: 'size',
+    }) : null;
+    drawComposition(ctx, v.scale, v.ox, v.oy, { editing: true, overlay });
     if (state.step === 5) drawAnnotSelection(ctx);
     positionLaneEditor();
     refreshExportUI();
@@ -2045,8 +2074,9 @@ function captionText() {
 const captionHeight = () => (state.annot.style && state.annot.layers.caption && captionText() ? Math.round(state.annot.style.labelSize * 2.1) : 0);
 
 /** All drawable composition elements, in drawing order, in image-pixel coordinates. */
-function compositionElements(layers = state.annot.layers) {
+function compositionElements(layers = state.annot.layers, headersOnly = false) {
   const A = state.annot, S = A.style, out = [];
+  if (headersOnly) layers = { nums: layers.nums };             // layout pass: only lane headers matter
   if (!state.img || !S) return out;
   state.lanes.forEach((L, li) => {
     const yT = laneTop(L), yB = laneBot(L), hw = L.width / 2;
@@ -2068,6 +2098,7 @@ function compositionElements(layers = state.annot.layers) {
                  color: lab.color || (S.laneAuto ? laneCol : S.laneColor), x: L.xTop + (lab.dx || 0), y: Math.max(yT - 0.55 * size, size) + (lab.dy || 0) });
     }
   });
+  if (headersOnly) return out;
   for (const it of A.items) {
     if (it.type === 'text') out.push({ kind: 'text', item: it, text: it.text, size: it.size, bold: it.bold, color: it.color, x: it.x, y: it.y });
     else out.push({ kind: 'line', item: it });
@@ -2123,7 +2154,7 @@ function drawCompositionElements(ctx, k, ox, oy, elements) {
 }
 
 /* ---- ADD: shared source → figure layout. All distances remain image pixels. ---- */
-let cutoutEdit = null, inlineLaneEdit = null;
+let cutoutEdit = null, inlineLaneEdit = null, lastLaneTap = null;
 
 function getFigureLayout({ original = !!cutoutEdit || state.step < 5, exporting = false } = {}) {
   const A = state.annot, F = A.figure, W = state.img.width, H = state.img.height;
@@ -2133,7 +2164,8 @@ function getFigureLayout({ original = !!cutoutEdit || state.step < 5, exporting 
   const size = A.style ? A.style.laneSize : 13, tickSize = A.style ? A.style.labelSize : 11;
   const guides = getCalibrationGuides(), pad = Math.max(8, size * 0.7);
   let left = F.ticks && guides.length ? Math.max(...guides.map(g => textWidth(String(g.size), tickSize, false)), tickSize * 2) + pad * 2 : pad;
-  const right = F.callouts.some(c => c.visible) ? textWidth(`← ${F.callouts.length}`, size, true) + pad * 3 : pad;
+  const shown = F.callouts.filter(c => c.visible).length;
+  const right = shown ? textWidth(`← ${shown}`, size, true) + pad * 3 : pad;
   let top = size * 2 + pad, x = left;
   const panels = rects.map(r => {
     const p = { id: r.id, sx: r.x, sy: y0, sw: r.width, sh: y1 - y0, dx: x, dy: top };
@@ -2142,7 +2174,7 @@ function getFigureLayout({ original = !!cutoutEdit || state.step < 5, exporting 
   const imageWidth = x - left - 8, imageHeight = y1 - y0;
   const L = { width: left + imageWidth + right, height: 0, left, right, top, imageWidth, imageHeight, panels, spliced, captionY: 0 };
   // Reserve actual rotated header bounds, including manual label offsets.
-  const headers = projectedFigureElements(L, !exporting && state.step === 4).filter(e => e.kind === 'laneLabel' && !e.hidden);
+  const headers = projectedFigureElements(L, !exporting && state.step === 4, true).filter(e => !e.hidden);
   const boxes = headers.map(elBox), minX = Math.min(pad, ...boxes.map(b => b.x0)), minY = Math.min(pad, ...boxes.map(b => b.y0));
   const extraLeft = Math.max(0, pad - minX), extraTop = Math.max(0, pad - minY);
   left += extraLeft; top += extraTop;
@@ -2160,8 +2192,9 @@ function figureToSource(p, layout = getFigureLayout()) {
   const panel = layout.panels.find(q => p.x >= q.dx && p.x <= q.dx + q.sw && p.y >= q.dy && p.y <= q.dy + q.sh);
   return panel ? { x: panel.sx + p.x - panel.dx, y: panel.sy + p.y - panel.dy, panelId: panel.id } : null;
 }
-function projectedFigureElements(layout = getFigureLayout(), analysis = false) {
-  const out = [], elements = compositionElements(analysis ? { lanes: true, bands: true, labels: true, nums: true } : state.annot.layers);
+function projectedFigureElements(layout = getFigureLayout(), analysis = false, headersOnly = false) {
+  // Step 4 takes lane headers from the figure; drawOverlays supplies its interactive lanes and bands.
+  const out = [], elements = compositionElements(analysis ? { lanes: false, bands: false, labels: false, nums: true } : state.annot.layers, headersOnly);
   for (const panel of layout.panels) for (const e of elements) {
     if (e.kind === 'laneLabel') {
       const lab = e.lane.numLab || {}, cx = laneCenterAt(e.lane, panel.sy);
@@ -2182,7 +2215,7 @@ function projectedFigureElements(layout = getFigureLayout(), analysis = false) {
 }
 
 /** Full WYSIWYG renderer shared by the screen and every export encoder. */
-function drawComposition(ctx, k, ox, oy, { editing = false, layout = getFigureLayout() } = {}) {
+function drawComposition(ctx, k, ox, oy, { editing = false, layout = getFigureLayout(), overlay = null } = {}) {
   const A = state.annot, F = A.figure, S = A.style, L = layout;
   if (!S) return;
   const M = (x, y) => [ox + x * k, oy + y * k], elements = projectedFigureElements(L, editing && state.step === 4);
@@ -2190,8 +2223,10 @@ function drawComposition(ctx, k, ox, oy, { editing = false, layout = getFigureLa
   for (const p of L.panels) {
     const [x, y] = M(p.dx, p.dy);
     ctx.save(); ctx.beginPath(); ctx.rect(x, y, p.sw * k, p.sh * k); ctx.clip();
+    if (editing) ctx.imageSmoothingEnabled = k < 2;                   // show real pixels when zoomed in on screen
     ctx.drawImage(state.dispCanvas, p.sx, p.sy, p.sw, p.sh, x, y, p.sw * k, p.sh * k);
     drawCompositionElements(ctx, k, ox, oy, elements.filter(e => e.panelId === p.id && e.kind !== 'laneLabel'));
+    if (overlay) overlay(p);
     if (editing && A.draft) {
       const d = A.draft, a = sourceToFigure({ x: d.x1, y: d.y1 }, p), b = sourceToFigure({ x: d.x2, y: d.y2 }, p);
       drawCompositionElements(ctx, k, ox, oy, [{ kind: 'line', item: { ...d, x1: a.x, y1: a.y, x2: b.x, y2: b.y } }]);
@@ -2217,8 +2252,7 @@ function drawComposition(ctx, k, ox, oy, { editing = false, layout = getFigureLa
     }
   }
   ctx.font = fontSpec(S.laneSize * k, true); ctx.textAlign = 'left';
-  F.callouts.forEach((c, i) => {
-    if (!c.visible || c.y < p0.sy || c.y > p0.sy + p0.sh) return;
+  F.callouts.filter(c => c.visible && c.y >= p0.sy && c.y <= p0.sy + p0.sh).forEach((c, i) => {   // number only the callouts shown
     const [x, y] = M(L.left + L.imageWidth + 8, yAt(c.y)); ctx.fillText(`← ${i + 1}`, x, y);
   });
   if (L.capH) {
@@ -2232,16 +2266,21 @@ function drawGuideLines(ctx, panel, k, ox, oy) {
   const lane = ladderLane(); if (!lane) return;
   for (const g of getCalibrationGuides()) {
     if (g.y < panel.sy || g.y > panel.sy + panel.sh) continue;
-    const cx = laneCenterAt(lane, g.y), left = cx - lane.width / 2, right = cx + lane.width / 2;
+    // The line reaches past the lane edges to grab handles, which stay clear of the ladder bands.
+    const cx = laneCenterAt(lane, g.y), ext = GUIDE_HANDLE_PX / k, left = cx - lane.width / 2 - ext, right = cx + lane.width / 2 + ext;
     if (right < panel.sx || left > panel.sx + panel.sw) continue;
     const a = sourceToFigure({ x: left, y: g.y }, panel), b = sourceToFigure({ x: right, y: g.y }, panel);
-    ctx.strokeStyle = g.confirmed ? '#42e86c' : 'rgba(66,232,108,.55)'; ctx.lineWidth = Math.max(1.3, k * 1.4); ctx.setLineDash(g.confirmed ? [] : [3 * k, 3 * k]);
+    const col = g.confirmed ? '#42e86c' : 'rgba(66,232,108,.55)';
+    ctx.strokeStyle = col; ctx.lineWidth = Math.max(1.3, k * 1.4); ctx.setLineDash(g.confirmed ? [] : [3 * k, 3 * k]);
     ctx.beginPath(); ctx.moveTo(ox + a.x * k, oy + a.y * k); ctx.lineTo(ox + b.x * k, oy + b.y * k); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = col;
+    for (const q of [a, b]) { ctx.beginPath(); ctx.arc(ox + q.x * k, oy + q.y * k, 3.5, 0, Math.PI * 2); ctx.fill(); }
   }
 }
+const GUIDE_HANDLE_PX = 10;   // on-screen length of a guide's grab handle beyond each lane edge
 function hitFigureGuide(p, layout = getFigureLayout()) {
   const q = figureToSource(p, layout), lane = ladderLane(); if (!q || !lane) return null;
-  if (Math.abs(q.x - laneCenterAt(lane, q.y)) > lane.width / 2 + 6 / state.view.scale) return null;
+  if (Math.abs(q.x - laneCenterAt(lane, q.y)) > lane.width / 2 + (GUIDE_HANDLE_PX + 6) / state.view.scale) return null;
   const tolerance = 6 / state.view.scale;
   return getCalibrationGuides().slice().sort((a, b) => Math.abs(a.y - q.y) - Math.abs(b.y - q.y)).find(g => Math.abs(g.y - q.y) <= tolerance) || null;
 }
@@ -2257,10 +2296,10 @@ function startCutoutEdit() {
 function finishCutoutEdit(commit) {
   if (!cutoutEdit) return;
   if (commit) {
-    if (!cutoutEdit.cutouts.length) return toast('Draw at least one cutout, or choose Cancel.');
-    beginEdit(); const F = state.annot.figure;
+    // Done with every cutout deleted returns the figure to the full gel (undoable like any edit).
+    beginEdit(); const F = state.annot.figure, any = cutoutEdit.cutouts.length > 0;
     F.cutouts = cutoutEdit.cutouts.map(c => ({ ...c })).sort((a, b) => a.x - b.x);
-    F.cropY = cutoutEdit.cropY.slice(); F.spliced = true; state.annot.nextId = cutoutEdit.nextId; endEdit();
+    F.cropY = any ? cutoutEdit.cropY.slice() : [0, state.img.height]; F.spliced = any; state.annot.nextId = cutoutEdit.nextId; endEdit();
   }
   cutoutEdit = null; syncFigureUI(); fitView();
 }
@@ -2293,10 +2332,11 @@ function syncFigureUI() {
   ['#btnCutoutsDone', '#btnCutoutsCancel', '#btnDeleteCutout'].forEach(id => $(id).hidden = !editing);
   $('#btnDeleteCutout').disabled = !editing || !cutoutEdit.selId;
   $('#btnAddCutout').disabled = editing;
-  $('#cutoutHint').textContent = editing ? 'Drag empty space to draw a cutout. Drag an edge to resize; top and bottom are shared. Done applies; Cancel restores.' : 'Double-click a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.';
+  updateUndoButtons();
+  $('#cutoutHint').textContent = editing ? 'Drag empty space to draw a cutout. Drag an edge to resize; top and bottom are shared. Done applies (with none left, it shows the full gel); Cancel restores.' : 'Double-click (or double-tap) a lane header to rename it. Tab / Enter advances to the next visible lane. Cutouts keep the source image intact.';
 }
 function visibleHeaderLanes() {
-  const ids = new Set(); return projectedFigureElements().filter(e => e.kind === 'laneLabel' && !e.hidden).filter(e => !ids.has(e.lane.id) && ids.add(e.lane.id)).map(e => e.lane);
+  const ids = new Set(); return projectedFigureElements(undefined, false, true).filter(e => e.kind === 'laneLabel' && !e.hidden).filter(e => !ids.has(e.lane.id) && ids.add(e.lane.id)).map(e => e.lane);
 }
 function openLaneEditor(lane) {
   closeLaneEditor(true);
@@ -2308,7 +2348,7 @@ function openLaneEditor(lane) {
 }
 function positionLaneEditor() {
   if (!inlineLaneEdit) return;
-  const e = projectedFigureElements().find(e => e.kind === 'laneLabel' && e.lane === inlineLaneEdit.lane && !e.hidden);
+  const e = projectedFigureElements(undefined, false, true).find(e => e.lane === inlineLaneEdit.lane && !e.hidden);
   if (!e || state.step !== 5) { closeLaneEditor(true); return; }
   const p = toScreen(e.x, e.y), input = $('#laneInlineEditor');
   input.style.left = `${clamp(p.x - 80, 0, Math.max(0, gel.w - 160))}px`; input.style.top = `${clamp(p.y - 32, 0, Math.max(0, gel.h - 32))}px`;
@@ -2370,9 +2410,9 @@ function ensureLab(sel) {
 }
 
 /** Hit-test the composition at image point p (topmost first). */
-function annotHit(p, tol = 6 / state.view.scale) {
+function annotHit(p, tol = 6 / state.view.scale, layout = getFigureLayout()) {
   const A = state.annot;
-  const sel = A.sel, layout = getFigureLayout(), source = figureToSource(p, layout);
+  const sel = A.sel, source = figureToSource(p, layout);
   if (sel && sel.kind === 'item' && sel.item.type === 'line') {
     if (source) {
       const it = sel.item;
@@ -2413,7 +2453,7 @@ function annotSnapshot() {
   const A = state.annot;
   return JSON.stringify({
     items: A.items, style: A.style, layers: A.layers, caption: A.caption,
-    figure: A.figure, nextId: A.nextId, guides: state.calib.guides, guideLaneId: state.calib.guideLaneId,
+    figure: A.figure, nextId: A.nextId, guides: state.calib.guides, guideLaneId: state.calib.guideLaneId, guideBands: state.calib.guideBands,
     calibConfig: { preset: state.calib.preset, sizes: state.calib.sizes, offset: state.calib.offset, assignMode: state.calib.assignMode, model: state.calib.model, ladderLaneId: ladderLane()?.id ?? null },
     lanes: state.lanes.map(L => ({ id: L.id, lab: L.numLab || null, standards: L.isLadder ? L.bands.map(b => ({ rf: b.rf, size: b.size })) : null, bands: L.bands.filter(b => b.lab).map(b => ({ rf: b.rf, lab: b.lab })) })),
   });
@@ -2426,7 +2466,7 @@ function annotRestore(json) {
     const { ladderLaneId, ...config } = s.calibConfig; Object.assign(state.calib, config);
     if (state.lanes.some(L => L.id === ladderLaneId)) state.lanes.forEach(L => { L.isLadder = L.id === ladderLaneId; });
   }
-  state.calib.guides = s.guides; state.calib.guideLaneId = s.guideLaneId;
+  state.calib.guides = s.guides; state.calib.guideLaneId = s.guideLaneId; state.calib.guideBands = s.guideBands ?? null;
   for (const L of state.lanes) {
     const ls = s.lanes.find(x => x.id === L.id);
     L.numLab = ls ? ls.lab : null;
@@ -2449,15 +2489,18 @@ function pushUndo(snap) {
 /** Call before a change; endEdit() records an undo step if anything actually changed. */
 function beginEdit() { if (pendingSnap == null) pendingSnap = annotSnapshot(); }
 function endEdit() { if (pendingSnap != null) { if (pendingSnap !== annotSnapshot()) pushUndo(pendingSnap); pendingSnap = null; } }
+const cutoutEditBlocksUndo = () => cutoutEdit && (toast('Choose Done or Cancel for the cutouts before using undo or redo.'), true);
 function undo() {
+  if (cutoutEditBlocksUndo()) return;
   endEdit(); const A = state.annot; if (!A.undo.length) return;
   A.redo.push(annotSnapshot()); annotRestore(A.undo.pop()); updateUndoButtons();
 }
 function redo() {
+  if (cutoutEditBlocksUndo()) return;
   endEdit(); const A = state.annot; if (!A.redo.length) return;
   A.undo.push(annotSnapshot()); annotRestore(A.redo.pop()); updateUndoButtons();
 }
-function updateUndoButtons() { $('#btnUndo').disabled = !state.annot.undo.length; $('#btnRedo').disabled = !state.annot.redo.length; }
+function updateUndoButtons() { $('#btnUndo').disabled = !!cutoutEdit || !state.annot.undo.length; $('#btnRedo').disabled = !!cutoutEdit || !state.annot.redo.length; }
 
 /* ---- Electropherogram ---- */
 const prof = { canvas: $('#profileCanvas'), ctx: $('#profileCanvas').getContext('2d'), w: 0, h: 0, dpr: 1, m: { l: 50, r: 14, t: 26, b: 30 } };
@@ -2663,7 +2706,7 @@ function goStep(n) {
   $('#stHint').textContent = ['Image', 'Lanes', 'Bands', 'Calibration & results', 'Annotate & export'][n - 1] + ' mode';
   $('#sidebar').scrollTop = 0;
   if (n === 5) { flush(); syncAnnotUI(); renderInspector(); }
-  if (state.img && (old >= 4 || n >= 4)) fitView();
+  if (state.img && (old >= 4) !== (n >= 4)) fitView();          // 4 ↔ 5 keeps the zoom (see keepViewAnchored)
   invalidate('gel', 'profile', 'calib');
 }
 
@@ -2874,7 +2917,7 @@ function initUI() {
     if (!state.img) return;
     state.frontY = Math.max(v, state.wellY + 10); state.lanes.forEach(invalidateLane); invalidate('analysis');
   }, v => v + ' px');
-  $('#isLadder').addEventListener('change', e => setLadder(e.target.checked ? state.sel : null));
+  $('#isLadder').addEventListener('change', e => calibrationEdit(() => setLadder(e.target.checked ? state.sel : null)));
   $('#btnAddLane').addEventListener('click', addLane);
   $('#btnDelLane').addEventListener('click', () => deleteLane(state.sel));
   $('#btnStraighten').addEventListener('click', () => {
@@ -2907,22 +2950,24 @@ function initUI() {
   $('#ladderPreset').innerHTML = Object.entries(LADDER_PRESETS).map(([k, p]) => `<option value="${k}">${p.name}</option>`).join('');
   $('#ladderPreset').addEventListener('change', e => {
     const p = LADDER_PRESETS[e.target.value];
-    state.calib.preset = e.target.value;
-    if (p.sizes) { state.calib.sizes = p.sizes.slice(); $('#ladderSizes').value = p.sizes.join(', '); }
-    resetCalibrationGuides(); invalidate('analysis');
+    calibrationEdit(() => {
+      state.calib.preset = e.target.value;
+      if (p.sizes) { state.calib.sizes = p.sizes.slice(); $('#ladderSizes').value = p.sizes.join(', '); }
+      resetCalibrationGuides();
+    });
+    invalidate('analysis');
   });
   $('#ladderSizes').addEventListener('input', debounce(e => {
     const sizes = parseSizes(e.target.value);
-    state.calib.sizes = sizes;
     const match = Object.entries(LADDER_PRESETS).find(([, p]) => p.sizes && p.sizes.join() === sizes.join());
-    state.calib.preset = match ? match[0] : 'custom';
-    resetCalibrationGuides(); invalidate('analysis');
+    calibrationEdit(() => { state.calib.sizes = sizes; state.calib.preset = match ? match[0] : 'custom'; resetCalibrationGuides(); });
+    invalidate('analysis');
   }, 350));
   $('#ladderSizes').addEventListener('blur', () => invalidate('calib'));
-  $('#ladderOffset').addEventListener('input', e => { state.calib.offset = clamp(+e.target.value || 0, 0, 50); resetCalibrationGuides(); invalidate('analysis'); });
-  $('#btnAutoAssign').addEventListener('click', () => { resetCalibrationGuides(); invalidate('analysis'); toast('Manual guides reset. Ladder sizes assigned from the top band (largest) down.'); });
-  $('#ladderSelect').addEventListener('change', e => setLadder(state.lanes[+e.target.value] || null));
-  $('#ladderBody').addEventListener('change', e => {
+  $('#ladderOffset').addEventListener('input', e => { calibrationEdit(() => { state.calib.offset = clamp(+e.target.value || 0, 0, 50); resetCalibrationGuides(); }); invalidate('analysis'); });
+  $('#btnAutoAssign').addEventListener('click', () => { calibrationEdit(resetCalibrationGuides); invalidate('analysis'); toast('Manual guides reset. Ladder sizes assigned from the top band (largest) down.'); });
+  $('#ladderSelect').addEventListener('change', e => calibrationEdit(() => setLadder(state.lanes[+e.target.value] || null)));
+  $('#ladderBody').addEventListener('change', e => calibrationEdit(() => {
     const L = ladderLane(), rfInput = e.target.closest('input[data-guide-rf]'), included = e.target.closest('input[data-guide-include]');
     if (rfInput && L) {
       if (rfInput.value.trim() && Number.isFinite(+rfInput.value))
@@ -2941,8 +2986,8 @@ function initUI() {
     state.calib.assignMode = 'manual';
     b.size = sel.value ? +sel.value : null;
     invalidate('analysis');
-  });
-  $('#fitModel').addEventListener('change', e => { state.calib.model = e.target.value; refreshCalibrationGuides(); });
+  }));
+  $('#fitModel').addEventListener('change', e => calibrationEdit(() => { state.calib.model = e.target.value; refreshCalibrationGuides(); }));
 
   // Export
   initAnnotUI();
@@ -3127,8 +3172,8 @@ function deleteAnnotSel() {
 
 function initAnnotUI() {
   const A = state.annot, panel = $('#panel5');
-  $('#angleHeaders').addEventListener('change', e => { beginEdit(); A.figure.angleHeaders = e.target.checked; endEdit(); fitView(); });
-  $('#figureTicks').addEventListener('change', e => { beginEdit(); A.figure.ticks = e.target.checked; endEdit(); fitView(); });
+  $('#angleHeaders').addEventListener('change', e => { beginEdit(); A.figure.angleHeaders = e.target.checked; endEdit(); invalidate('gel'); });
+  $('#figureTicks').addEventListener('change', e => { beginEdit(); A.figure.ticks = e.target.checked; endEdit(); invalidate('gel'); });
   $('#btnAddCutout').addEventListener('click', startCutoutEdit);
   $('#btnCutoutsDone').addEventListener('click', () => finishCutoutEdit(true));
   $('#btnCutoutsCancel').addEventListener('click', () => finishCutoutEdit(false));
@@ -3201,6 +3246,11 @@ function initAnnotUI() {
   $('#exSmooth').addEventListener('change', e => { A.exp.smooth = e.target.checked; });
 }
 
+/** Calibration settings share the figure undo history, so each change made outside the editor is its own undo step. */
+function calibrationEdit(change) {
+  if (!state.img) return change();
+  endEdit(); beginEdit(); change(); endEdit();
+}
 function setLadder(L) {
   state.lanes.forEach(x => { x.isLadder = x === L; });
   resetCalibrationGuides();
@@ -3307,7 +3357,7 @@ function annotPointerDown(e, p, base) {
     }
     syncFigureUI(); invalidate('gel'); return true;
   }
-  const guide = A.tool === 'select' && !annotHit(p, 0) && hitFigureGuide(p, layout);
+  const guide = A.tool === 'select' && !annotHit(p, 0, layout) && hitFigureGuide(p, layout);
   if (guide) { beginEdit(); drag = { ...base, type: 'guide', guideId: guide.id, origY: guide.y }; return true; }
   if (A.tool === 'callout') {
     if (!q) return true;
@@ -3413,10 +3463,11 @@ function annotPointerUp(d) {
 }
 function annotHoverCursor(p) {
   const A = state.annot, c = gel.canvas;
-  if (cutoutEdit) { const panel = getFigureLayout().panels[0], h = hitCutout({ x: p.x - panel.dx, y: p.y - panel.dy }); c.style.cursor = h ? h.edgeY ? 'ns-resize' : h.edgeX ? 'ew-resize' : 'move' : 'crosshair'; return; }
-  if (A.tool === 'select' && !annotHit(p, 0) && hitFigureGuide(p)) { c.style.cursor = 'ns-resize'; return; }
-  if (A.tool !== 'select') { c.style.cursor = A.tool === 'line' ? 'crosshair' : 'text'; return; }
-  const h = annotHit(p);
+  const layout = getFigureLayout();
+  if (cutoutEdit) { const panel = layout.panels[0], h = hitCutout({ x: p.x - panel.dx, y: p.y - panel.dy }); c.style.cursor = h ? h.edgeY ? 'ns-resize' : h.edgeX ? 'ew-resize' : 'move' : 'crosshair'; return; }
+  if (A.tool === 'select' && !annotHit(p, 0, layout) && hitFigureGuide(p, layout)) { c.style.cursor = 'ns-resize'; return; }
+  if (A.tool !== 'select') { c.style.cursor = A.tool === 'text' ? 'text' : 'crosshair'; return; }
+  const h = annotHit(p, undefined, layout);
   c.style.cursor = !h ? 'default' : h.kind === 'end' ? 'pointer' : h.kind === 'caption' ? 'text' : 'move';
 }
 /** Keyboard shortcuts while annotating. Returns true when handled. */
@@ -3472,7 +3523,7 @@ function initPointer() {
     if (e.button === 1 || spaceDown || (e.button === 0 && e.altKey)) { drag = { ...base, type: 'pan' }; c.style.cursor = 'grabbing'; return; }
     if (state.step === 5) { annotPointerDown(e, p, base); return; }
     if (state.step === 4 && e.button === 0) {
-      const guide = hitFigureGuide(fp);
+      const guide = !hitBand(p) && hitFigureGuide(fp);           // bands keep priority; guides also have handles outside the lane
       if (guide) { beginEdit(); drag = { ...base, type: 'guide', guideId: guide.id, origY: guide.y }; return; }
     }
     if (e.button === 2) {
@@ -3550,6 +3601,7 @@ function initPointer() {
       syncFigureUI(); invalidate('gel'); return;
     }
     if (d.type === 'guide') { annotPointerUp(d); updateHoverCursor(p); return; }
+    if (state.step === 5 && isLaneDoubleTap(e, d, p)) { annotPointerUp(d); openLaneEditor(lastLaneTap.lane); lastLaneTap = null; return; }
     if (state.step === 5) { annotPointerUp(d); annotHoverCursor(p); return; }
     if (d.type === 'laneClick' && !d.moved) {
       if (state.step === 3 && d.lane === state.sel) {
@@ -3561,6 +3613,13 @@ function initPointer() {
       sortLanes(); invalidate('analysis', 'laneUI');
     }
     updateHoverCursor(p);
+  };
+  // Touch browsers (notably iOS Safari) do not reliably fire dblclick, so detect a double tap on a header.
+  const isLaneDoubleTap = (e, d, p) => {
+    if (e.pointerType !== 'touch' || d.moved || cutoutEdit) return false;
+    const h = annotHit(p), prev = lastLaneTap, now = performance.now();
+    lastLaneTap = h?.kind === 'lane' ? { lane: h.lane, time: now } : null;
+    return !!(lastLaneTap && prev && prev.lane === lastLaneTap.lane && now - prev.time < 400);
   };
   c.addEventListener('pointerup', end);
   c.addEventListener('pointercancel', end);

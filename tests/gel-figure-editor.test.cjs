@@ -162,17 +162,20 @@ test('dragging a ladder guide uses image coordinates at the current zoom', async
         loadDemo(); goStep(step); fitView(); flush();
         const guide = getCalibrationGuides()[3], L = ladderLane();
         const layout = getFigureLayout(), panel = layout.panels[0];
-        const point = sourceToFigure({ x: laneCenterAt(L, guide.y) - L.width * .4, y: guide.y }, panel);
+        // Grab the handle just outside the lane edge; the band itself keeps priority in step 4.
+        const point = sourceToFigure({ x: laneCenterAt(L, guide.y) - L.width / 2 - GUIDE_HANDLE_PX / state.view.scale, y: guide.y }, panel);
         const p = toScreen(point.x, point.y), r = gel.canvas.getBoundingClientRect();
-        return { id: guide.id, y: guide.y, scale: state.view.scale, x: r.left + p.x, screenY: r.top + p.y };
+        return { id: guide.id, y: guide.y, rf: L.bands[3].rf, scale: state.view.scale, x: r.left + p.x, screenY: r.top + p.y };
       }, step);
       await page.mouse.move(target.x, target.screenY);
       await page.mouse.down();
       await page.mouse.move(target.x + 12, target.screenY + 9, { steps: 5 });
       await page.mouse.up();
-      const moved = await page.evaluate(id => getCalibrationGuides().find(g => g.id === id), target.id);
+      const moved = await page.evaluate(id => ({ ...getCalibrationGuides().find(g => g.id === id), manual: !!state.calib.guides, rf: ladderLane().bands[3].rf }), target.id);
       assert.ok(Math.abs(moved.y - (target.y + 9 / target.scale)) < 1, `step ${step}: expected y ${target.y + 9 / target.scale}; got ${moved.y}`);
       assert.equal(moved.id, target.id);
+      assert.equal(moved.manual, true);
+      assert.equal(moved.rf, target.rf, `step ${step}: the ladder band must not move with its guide`);
     }
     assert.deepEqual(page.errors, []);
   } finally { await page.close(); }
@@ -440,6 +443,168 @@ test('narrow touch viewport fits the composed figure and keeps panel mappings pr
     assert.equal(result.dpr, 3);
     assert.ok(result.touch > 0);
     assert.ok(result.pageWidth <= result.viewport + 1, `horizontal page overflow: ${result.pageWidth} > ${result.viewport}`);
+    assert.deepEqual(errors, []);
+  } finally { await context.close(); }
+});
+
+const screenPoint = (page, x, y) => page.evaluate(({ x, y }) => {
+  const f = sourceToFigure({ x, y }, getFigureLayout().panels[0]), p = toScreen(f.x, f.y), r = gel.canvas.getBoundingClientRect();
+  return { x: r.left + p.x, y: r.top + p.y };
+}, { x, y });
+
+test('calibration changes from the sidebar are separate undo steps and never undone with figure edits', async () => {
+  const page = await openEditor();
+  try {
+    const result = await page.evaluate(() => {
+      goStep(5); flush();
+      beginEdit(); state.annot.caption = 'figure edit'; endEdit();
+      goStep(4); flush();
+      const model = $('#fitModel'); model.value = 'cubic'; model.dispatchEvent(new Event('change'));
+      const offset = $('#ladderOffset'); offset.value = '2'; offset.dispatchEvent(new Event('input')); flush();
+      goStep(5); flush();
+      const read = () => ({ model: state.calib.model, offset: state.calib.offset, caption: state.annot.caption, ui: [$('#fitModel').value, $('#ladderOffset').value] });
+      const steps = [read()];
+      for (let i = 0; i < 3; i++) { undo(); flush(); steps.push(read()); }
+      return steps;
+    });
+    assert.deepEqual(result.map(r => [r.model, r.offset, r.caption]), [
+      ['cubic', 2, 'figure edit'], ['cubic', 0, 'figure edit'], ['linear', 0, 'figure edit'], ['linear', 0, '']]);
+    assert.deepEqual(result[3].ui, ['linear', '0']);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('step 4 drags ladder bands, keeps analysis overlays, and warns when bands change under manual guides', async () => {
+  const page = await openEditor();
+  try {
+    await page.evaluate(() => { goStep(4); fitView(); flush(); });
+    const band = await page.evaluate(() => { const L = ladderLane(), b = L.bands[2]; const y = laneTop(L) + b.rf * (laneBot(L) - laneTop(L)); return { x: laneCenterAt(L, y), y, rf: b.rf }; });
+    const a = await screenPoint(page, band.x, band.y);
+    await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(a.x, a.y + 12, { steps: 5 }); await page.mouse.up();
+    const result = await page.evaluate(rf0 => {
+      flush();
+      let overlays = 0; const original = drawOverlays; drawOverlays = (...args) => { overlays++; return original(...args); };
+      drawGel(); const step4 = overlays; goStep(5); flush(); drawGel(); const step5 = overlays - step4; drawOverlays = original;
+      goStep(4); flush();
+      const moved = ladderLane().bands[2].rf !== rf0, manual = !!state.calib.guides;
+      const guide = getCalibrationGuides()[1]; beginCalibrationGuideEdit(guide.id); moveCalibrationGuide(guide.id, guide.y + 2);
+      const before = state.calib.warning;
+      deleteBand(ladderLane(), ladderLane().bands[4]); flush();
+      return { moved, manual, step4, step5, before, after: state.calib.warning };
+    }, band.rf);
+    assert.equal(result.moved, true);
+    assert.equal(result.manual, false);
+    assert.ok(result.step4 > 0, 'step 4 draws the interactive overlays');
+    assert.equal(result.step5, 0);
+    assert.doesNotMatch(result.before, /Ladder bands changed/);
+    assert.match(result.after, /Ladder bands changed after the guides were placed by hand/);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('repeated ladder sizes get independent guides', async () => {
+  const page = await openEditor();
+  try {
+    const result = await page.evaluate(() => {
+      state.calib.sizes = [10000, 5000, 5000, 3000, 2000, 1000]; calibrate();
+      const guides = getCalibrationGuides(), ids = guides.map(g => g.id), before = guides.map(g => g.y);
+      moveCalibrationGuide(ids[2], before[2] + 20);
+      return { ids, before, after: getCalibrationGuides().map(g => g.y) };
+    });
+    assert.equal(new Set(result.ids).size, result.ids.length);
+    assert.equal(result.after[1], result.before[1]);
+    assert.ok(Math.abs(result.after[2] - (result.before[2] + 20)) < 1e-9);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('Done with every cutout deleted restores the full gel, and undo is blocked while editing cutouts', async () => {
+  const page = await openEditor();
+  try {
+    const result = await page.evaluate(() => {
+      goStep(5); flush();
+      startCutoutEdit(); cutoutEdit.cutouts = [{ id: 'c1', x: 10, width: 50 }]; cutoutEdit.cropY = [10, 100]; finishCutoutEdit(true);
+      const committed = JSON.stringify(state.annot.figure);
+      startCutoutEdit(); const draft = JSON.stringify(cutoutEdit);
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'z', ctrlKey: true }));
+      const blocked = { editing: JSON.stringify(cutoutEdit) === draft, undoDisabled: $('#btnUndo').disabled };
+      cutoutEdit.cutouts = []; finishCutoutEdit(true);
+      const cleared = { editing: !!cutoutEdit, figure: { ...state.annot.figure }, panels: getFigureLayout().panels.length };
+      undo();
+      return { blocked, cleared, restored: JSON.stringify(state.annot.figure) === committed, height: state.img.height };
+    });
+    assert.deepEqual(result.blocked, { editing: true, undoDisabled: true });
+    assert.equal(result.cleared.editing, false);
+    assert.equal(result.cleared.figure.spliced, false);
+    assert.deepEqual(result.cleared.figure.cutouts, []);
+    assert.deepEqual(result.cleared.figure.cropY, [0, result.height]);
+    assert.equal(result.cleared.panels, 1);
+    assert.equal(result.restored, true);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('callouts are numbered consecutively among those shown', async () => {
+  const page = await openEditor();
+  try {
+    const labels = await page.evaluate(() => {
+      goStep(5); flush();
+      state.annot.figure.callouts = [{ id: 1, y: 100, visible: false }, { id: 2, y: 200, visible: true }, { id: 3, y: 300, visible: true }];
+      const out = [], original = CanvasRenderingContext2D.prototype.fillText;
+      CanvasRenderingContext2D.prototype.fillText = function (t, ...a) { if (String(t).startsWith('←')) out.push(t); return original.call(this, t, ...a); };
+      drawGel(); CanvasRenderingContext2D.prototype.fillText = original;
+      return out;
+    });
+    assert.deepEqual(labels, ['← 1', '← 2']);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('zoom survives step 4 ↔ 5 and margin changes, the image stays put, and zoomed pixels stay sharp', async () => {
+  const page = await openEditor();
+  try {
+    const result = await page.evaluate(() => {
+      goStep(4); fitView(); flush();
+      zoomTo(3); flush();
+      const where = () => { const f = sourceToFigure({ x: 300, y: 300 }, getFigureLayout().panels[0]), p = toScreen(f.x, f.y); return [p.x, p.y]; };
+      const start = { scale: state.view.scale, at: where() };
+      goStep(5); flush(); const step5 = { scale: state.view.scale, at: where() };
+      $('#figureTicks').click(); flush(); const ticks = { scale: state.view.scale, at: where() };
+      state.lanes[3].numLab = { text: 'A much longer sample name' }; $('#angleHeaders').click(); flush();
+      const angled = { scale: state.view.scale, at: where() };
+      let smoothing = null; const original = CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage = function (...a) { if (a[0] === state.dispCanvas) smoothing = this.imageSmoothingEnabled; return original.apply(this, a); };
+      drawGel(); CanvasRenderingContext2D.prototype.drawImage = original;
+      return { start, step5, ticks, angled, smoothing };
+    });
+    for (const k of ['step5', 'ticks', 'angled']) {
+      assert.equal(result[k].scale, result.start.scale, k);
+      assert.ok(Math.hypot(result[k].at[0] - result.start.at[0], result[k].at[1] - result.start.at[1]) < 0.5, `${k}: image moved on screen`);
+    }
+    assert.equal(result.smoothing, false);
+    assert.deepEqual(page.errors, []);
+  } finally { await page.close(); }
+});
+
+test('double-tapping a lane header on a touch screen opens the inline editor', async () => {
+  const context = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+  const page = await context.newPage();
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  try {
+    await page.setContent(current);
+    const point = await page.evaluate(() => {
+      loadDemo(); goStep(5); flush(); fitView(); flush();
+      gel.canvas.scrollIntoView({ block: 'center' });                   // the canvas sits below the sidebar on phones
+      gel.canvas.addEventListener('dblclick', e => e.stopImmediatePropagation(), true);   // like iOS Safari: no dblclick from taps
+      const e = projectedFigureElements().find(e => e.kind === 'laneLabel' && e.lane === state.lanes[2]);
+      const p = toScreen(e.x, e.y - e.size * .25), r = gel.canvas.getBoundingClientRect();
+      return { x: r.left + p.x, y: r.top + p.y };
+    });
+    await page.touchscreen.tap(point.x, point.y);
+    assert.equal(await page.evaluate(() => inlineLaneEdit), null, 'a single tap only selects');
+    await page.touchscreen.tap(point.x, point.y);
+    await page.locator('#laneInlineEditor').waitFor({ state: 'visible' });
+    assert.equal(await page.evaluate(() => inlineLaneEdit.lane.id), await page.evaluate(() => state.lanes[2].id));
     assert.deepEqual(errors, []);
   } finally { await context.close(); }
 });

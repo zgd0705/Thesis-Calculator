@@ -8,12 +8,12 @@ The gel analyzer adds interactive figure controls while retaining the existing u
 
 - Inline lane-header editing with next/previous keyboard navigation and cancellation.
 - Optional −45° rotation for custom lane names longer than one trimmed character, with automatic lane numbers and single-character labels kept horizontal.
-- Individually draggable green ladder guides and a live external **bp** scale.
+- Individually draggable green ladder guides, with grab handles outside the lane so step-4 band dragging is unaffected, and a live external **bp** scale.
 - Provisional guide placement that creates or updates manual calibration points only after alignment.
-- Non-destructive lane cutouts, a shared vertical crop range, side-by-side panel composition, solid borders, and gaps; **Cancel** discards draft changes and **Show original** retains committed cutouts.
+- Non-destructive lane cutouts, a shared vertical crop range, side-by-side panel composition, solid borders, and gaps; **Cancel** discards draft changes, **Done** with no cutouts left restores the full gel, and **Show original** retains committed cutouts.
 - Numbered right-margin arrows with horizontal dashed band references.
 - Preview and export support for figure margins, headers, ladder ticks, panel borders, and callouts.
-- Undo and redo for committed figure edits, including one history entry per drag.
+- Undo and redo for committed figure edits, including one history entry per drag; calibration setting changes are separate history entries.
 
 ### Integration details
 
@@ -29,14 +29,16 @@ No build step or dependency installation is required. Run `python3 -m http.serve
 
 ### Validation
 
-All 13 Chrome browser regression tests passed. The checks cover:
+All 20 Chrome browser regression tests passed. The checks cover:
 
 - Numerical parity with the original demo, including lane geometry, source pixels, detected bands, and linear, quadratic, cubic, and point-to-point calibration.
 - Manual marker identity, placement, recalibration, persistence through reanalysis, and removal of stale ladder assignments from labels and CSV.
 - Atomic undo/redo of figure edits and calibration settings, including ladder identity.
 - Actual inline keyboard input, commit/cancel behavior, and navigation between visible headers.
 - Cutout drawing, moving, resizing, shared-height composition, **Done**, **Cancel**, and unchanged source arrays.
-- Callout visibility, placement in the spliced view, and rejection of clicks in panel gaps.
+- Callout visibility, consecutive numbering of shown callouts, placement in the spliced view, and rejection of clicks in panel gaps.
+- Calibration changes from the sidebar as separate undo steps, step-4 band dragging and analysis overlays, the manual-guide band-change warning, and independent guides for repeated ladder sizes.
+- Zoom and image position kept across steps 4 and 5 and margin changes, sharp pixels when zoomed in, removal of every cutout, undo paused during cutout editing, and touch double-tap header editing.
 - Image upload and orientation resets, composed export dimensions, and PNG/JPEG/TIFF format metadata.
 - Desktop rendering at device scale factor 2 and mobile touch emulation at 390 × 844 and device scale factor 3, with precise coordinate mapping, no horizontal page overflow, and no browser script errors.
 
